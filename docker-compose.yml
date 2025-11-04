@@ -1,0 +1,97 @@
+    # Файл: e-commerce-project/docker-compose.yml
+
+version: '3.8'
+
+services:
+  # 1. Веб-сервер (Nginx) - "Привратник"
+  # Он встречает всех посетителей и направляет их либо к Laravel, либо к фронтенду (в будущем).
+  nginx:
+    image: nginx:latest
+    container_name: ecom_nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./backend:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - app-network
+
+  # 2. Приложение (Laravel + PHP) - "Мозговой центр"
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ecom_app
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - app-network
+
+  # 3. База данных (MySQL) - "Хранилище"
+  db:
+    image: mysql:8.0
+    container_name: ecom_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ecom_db
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306" # Порт 3307 на нашем ПК будет вести в порт 3306 контейнера
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - app-network
+
+  # 4. PHPMyAdmin - "Окно в хранилище"
+  # Удобный инструмент, чтобы смотреть, что лежит в базе данных.
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: ecom_phpmyadmin
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+    ports:
+      - "8081:80" # Заходим на http://localhost:8081
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  # 5. Админка (Vue.js + Node) - "Кабинет директора"
+  admin-app:
+    build:
+      context: ./admin-app
+      dockerfile: Dockerfile
+    container_name: ecom_admin_app
+    volumes:
+      - ./admin-app:/app
+      - /app/node_modules # Чтобы node_modules оставались внутри контейнера
+    networks:
+      - app-network
+
+  # 6. Публичный сайт (Vue.js + Node) - "Витрина"
+  public-app:
+    build:
+      context: ./public-app
+      dockerfile: Dockerfile
+    container_name: ecom_public_app
+    ports:
+      - "5174:5173" # Другой порт, чтобы не конфликтовать с админкой
+    volumes:
+      - ./public-app:/app
+      - /app/node_modules
+    networks:
+      - app-network
+
+
+# Сеть, чтобы все наши "здания" могли общаться друг с другом по именам
+networks:
+  app-network:
+    driver: bridge
+
+# "Постоянная память" для базы данных, чтобы она не стиралась при перезапуске
+volumes:
+  db-data:
+    driver: local
