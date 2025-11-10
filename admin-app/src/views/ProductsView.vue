@@ -53,7 +53,7 @@
                     label="Основная категория"
                     v-model="editedItem.category_id"
                     :items="hierarchicalSuggestedList"
-                    item-title="title"
+                    item-title="indentedTitle"
                     item-value="id"
                     variant="outlined"
                     class="mb-3"
@@ -65,11 +65,11 @@
                 </v-col>
 
                 <v-col cols="12" class="text-center py-0" v-if="!showAllCategoriesSelector">
-                   <a href="#" @click.prevent="showAllCategoriesSelector = true" class="text-caption">Категория подобрана неверно? Показать все.</a>
+                  <a href="#" @click.prevent="showAllCategoriesSelector = true" class="text-caption">Категория подобрана неверно? Показать все.</a>
                 </v-col>
 
                 <v-col cols="12" v-if="showAllCategoriesSelector">
-                   <v-select
+                  <v-select
                     label="Дополнительная категория"
                     v-model="editedItem.secondary_category_id"
                     :items="hierarchicalAllList"
@@ -264,8 +264,19 @@ const buildHierarchy = (categories) => {
   return result;
 };
 
-const hierarchicalSuggestedList = computed(() => suggestedCategoryList.value);
+
+// "Предложенный" список (плоский) - он НЕ ИСПОЛЬЗУЕТ `buildHierarchy`
+const hierarchicalSuggestedList = computed(() => {
+  // Если "предложенный" список равен "полному" списку, строим иерархию
+  if (suggestedCategoryList.value.length === allCategoriesList.value.length) {
+    return buildHierarchy(suggestedCategoryList.value);
+  }
+  // Если это результат поиска, просто возвращаем его, добавив поле 'indentedTitle'
+  return suggestedCategoryList.value.map(cat => ({ ...cat, indentedTitle: cat.title }));
+});
+// "Полный" список (иерархический)
 const hierarchicalAllList = computed(() => buildHierarchy(allCategoriesList.value));
+
 
 let debounceTimer;
 const updateCategorySuggestions = async (searchTerm) => {

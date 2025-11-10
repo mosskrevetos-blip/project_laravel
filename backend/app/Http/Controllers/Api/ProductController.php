@@ -70,7 +70,10 @@ class ProductController extends Controller
         } catch (\Exception $e) {
             // Логируем ошибку, если что-то пошло не так
             logger()->error('File conversion failed: ' . $e->getMessage());
-            return null;
+            // Повертаю помилку для користувача
+            return response()->json([
+                'error' => 'Изображение не удалось обработать: ' . $e->getMessage(),
+            ], 422);
         }
     }
 
