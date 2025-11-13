@@ -17,6 +17,13 @@ export const useCategoryStore = defineStore('categories', {
 
   // Actions: методы для изменения состояния (здесь вся логика)
   actions: {
+    setSelectedCategoryAttributes(attributes) {
+      this.selectedCategoryAttributes = attributes || [];
+    },
+
+    clearSelectedCategoryAttributes() {
+      this.selectedCategoryAttributes = [];
+    },
     // 1. Получить все категории с сервера
     async fetchCategories() {
       this.loading = true;
@@ -51,7 +58,7 @@ export const useCategoryStore = defineStore('categories', {
       }
       try {
           const response = await apiClient.get(`/categories/${categoryId}/attributes`);
-          this.selectedCategoryAttributes = response.data;
+          this.setSelectedCategoryAttributes(response.data);
       } catch (error) {
           console.error('Ошибка при загрузке атрибутов:', error);
           this.selectedCategoryAttributes = [];

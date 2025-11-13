@@ -13,7 +13,6 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class ProductController extends Controller
 {
-
     use AuthorizesRequests;
 
     protected $fileService;
@@ -25,56 +24,78 @@ class ProductController extends Controller
 
     public function index() // Request $request больше не нужен
     {
-        // Используем `with('category')` для "жадной загрузки".
-        // Это решает проблему "N+1" и загружает связанные категории одним запросом.
-        // Вызываем наш новый scope `forUser()` и получаем результат
         return Product::with('category')->forUser()->latest()->get();
     }
 
-    private function storeImageAsWebp(UploadedFile $file): ?string
+    /**
+     * Конвертирует загруженный файл в webp и сохраняет в storage в папку продукта.
+     *
+     * @param UploadedFile $file
+     * @param int $productId
+     * @return string  — возвращает имя файла (с расширением .webp)
+     *
+     * @throws \RuntimeException при ошибке конвертации/сохранения
+     */
+    private function storeImageAsWebp(UploadedFile $file, int $productId): string
     {
-        $fileName = $this->fileService->generateUniqueFilename($file);
-        $path = 'products/' . $fileName;
+        // Генерируем имя и гарантируем расширение .webp
+        $baseName = $this->fileService->generateUniqueFilename($file);
+        $fileName = preg_replace('/\\.[^.]+$/', '', $baseName) . '.webp';
+        $path = "products/{$productId}/" . $fileName;
 
-        try {
-            // Создаём изображение из загруженного файла
-            $image = match ($file->getMimeType()) {
-                'image/jpeg' => imagecreatefromjpeg($file->getPathname()),
-                'image/png'  => imagecreatefrompng($file->getPathname()),
-                'image/gif'  => imagecreatefromgif($file->getPathname()),
-                'image/bmp'  => imagecreatefrombmp($file->getPathname()),
-                'image/webp' => imagecreatefromwebp($file->getPathname()),
-                default => null,
-            };
+        // Попробуем создать ресурс изображения
+        $image = match ($file->getMimeType()) {
+            'image/jpeg' => @imagecreatefromjpeg($file->getPathname()),
+            'image/png'  => @imagecreatefrompng($file->getPathname()),
+            'image/gif'  => @imagecreatefromgif($file->getPathname()),
+            'image/bmp'  => @imagecreatefrombmp($file->getPathname()),
+            'image/webp' => @imagecreatefromwebp($file->getPathname()),
+            default => null,
+        };
 
-            if (!$image) {
-                return null;
-            }
-
-            // Включаем альфа-канал для PNG и WebP
-            imagepalettetotruecolor($image);
-            imagealphablending($image, true);
-            imagesavealpha($image, true);
-
-            // Сохраняем как WebP (качество 80)
-            ob_start();
-            imagewebp($image, null, 80);
-            $webpImageContents = ob_get_clean();
-            imagedestroy($image);
-
-            // Сохраняем в Storage
-            Storage::disk('public')->put($path, $webpImageContents);
-
-            return $fileName;
-
-        } catch (\Exception $e) {
-            // Логируем ошибку, если что-то пошло не так
-            logger()->error('File conversion failed: ' . $e->getMessage());
-            // Повертаю помилку для користувача
-            return response()->json([
-                'error' => 'Изображение не удалось обработать: ' . $e->getMessage(),
-            ], 422);
+        if (!$image) {
+            throw new \RuntimeException('Unsupported image type or corrupted file.');
         }
+
+        // Включаем альфа-канал (если применимо)
+        if (function_exists('imagepalettetotruecolor')) {
+            @imagepalettetotruecolor($image);
+        }
+        @imagealphablending($image, true);
+        @imagesavealpha($image, true);
+
+        // Сохраняем как WebP (качество из конфигурации)
+        $quality = config('product.image_quality', 80);
+
+        ob_start();
+        $ok = @imagewebp($image, null, $quality);
+        $webpImageContents = ob_get_clean();
+        imagedestroy($image);
+
+        if (!$ok || $webpImageContents === false) {
+            throw new \RuntimeException('Failed to encode image to webp.');
+        }
+
+        // Перед записью убеждаемся, что директория существует (и если не может быть создана — бросаем читаемую ошибку)
+        try {
+            // makeDirectory может бросить исключение при недостатке прав
+            Storage::disk('public')->makeDirectory("products/{$productId}");
+        } catch (\Throwable $e) {
+            $realPath = null;
+            try {
+                $realPath = Storage::disk('public')->path("products/{$productId}");
+            } catch (\Throwable $_) {}
+            throw new \RuntimeException('Unable to create directory at ' . ($realPath ?: "products/{$productId}") . '. ' . $e->getMessage());
+        }
+
+        // Сохраняем в Storage (public disk)
+        try {
+            Storage::disk('public')->put($path, $webpImageContents);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Unable to write image to storage: ' . $e->getMessage());
+        }
+
+        return $fileName;
     }
 
     public function store(Request $request)
@@ -90,37 +111,63 @@ class ProductController extends Controller
             'city'                  => 'required|string|max:255',
             'category_id'           => 'required|exists:categories,id',
             'secondary_category_id' => 'nullable|exists:categories,id',
-            
-            // Валидация JSON-строк (т.к. они приходят из FormData)
             'video_urls'            => 'nullable|json',
             'properties'            => 'nullable|json',
-
-            // Валидация массива ФАЙЛОВ
-            'images'                => 'nullable|array|max:8',
-            'images.*'              => 'image|mimes:jpeg,png,gif,bmp,tiff,webp|max:2048', // 2MB
+            'images'                => 'nullable|array|max:' . config('product.max_images_per_product', 8),
+            'images.*'              => 'image|mimes:jpeg,png,gif,bmp,tiff,webp|max:' . (config('product.max_image_size_mb', 2) * 1024),
         ]);
 
+        // 1) Создаём запись товара без изображений (чтобы получить id)
+        $dataToCreate = $request->except(['images', 'properties', 'video_urls']);
+        $dataToCreate['image_url'] = [];
+        $dataToCreate['properties'] = json_decode($request->properties, true) ?? [];
+        $dataToCreate['video_urls'] = json_decode($request->video_urls, true) ?? [];
+
+        $product = Auth::user()->products()->create($dataToCreate);
+
+        // 2) Обрабатываем изображения и сохраняем в папку продукта
         $imageNames = [];
-        // 2. Обработка и сохранение изображений
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
-                // Используем наш конвертер
-                $fileName = $this->storeImageAsWebp($file);
-                if ($fileName) {
+                try {
+                    $fileName = $this->storeImageAsWebp($file, $product->id);
                     $imageNames[] = $fileName;
+                } catch (\Throwable $e) {
+                    // при ошибке — стараемся очистить, удалить товар, логировать безопасно и вернуть понятный ответ
+
+                    // попытка удалить файл/папку (обёрнуто в try/catch, т.к. может вызвать исключение при правах)
+                    try {
+                        Storage::disk('public')->deleteDirectory("products/{$product->id}");
+                    } catch (\Throwable $_) {
+                        // ничего — не ломаем дальнейшую обработку
+                    }
+
+                    try {
+                        $product->delete();
+                    } catch (\Throwable $_) {
+                        // пропускаем
+                    }
+
+                    // Безопасное логирование: если logger не сможет писать (проблемы с правами), не ломаем ответ
+                    try {
+                        logger()->error('Image processing failed while creating product: ' . $e->getMessage(), [
+                            'userId' => Auth::id(),
+                            'exception' => $e,
+                        ]);
+                    } catch (\Throwable $logEx) {
+                        // fallback — пишем в stderr (в docker/k8s это попадёт в логи контейнера)
+                        error_log('Logger failed: ' . $logEx->getMessage());
+                        error_log('Original image processing error: ' . $e->getMessage());
+                    }
+
+                    return response()->json(['message' => 'Ошибка обработки изображения: ' . $e->getMessage()], 422);
                 }
             }
         }
 
-        // 3. Подготовка данных для создания
-        $dataToCreate = $request->except(['images', 'properties', 'video_urls']);
-        $dataToCreate['image_url'] = $imageNames;
-        $dataToCreate['properties'] = json_decode($request->properties, true) ?? [];
-        $dataToCreate['video_urls'] = json_decode($request->video_urls, true) ?? [];
-
-        // 4. Создание товара
-        $product = Auth::user()->products()->create($dataToCreate);
-        // "Дозагружаем" в ответ связанные данные о категории
+        // 3) Обновляем товар списком изображений
+        $product->image_url = $imageNames;
+        $product->save();
         $product->load('category');
 
         return response()->json($product, 201);
@@ -133,9 +180,9 @@ class ProductController extends Controller
 
     public function update(Request $request, Product $product)
     {
-         $this->authorize('update', $product);
+        $this->authorize('update', $product);
 
-         $validated = $request->validate([
+        $validated = $request->validate([
             'title'                 => 'required|string|max:255',
             'sku'                   => 'required|string|unique:products,sku,'.$product->id,
             'price'                 => 'required|numeric|min:0',
@@ -146,55 +193,62 @@ class ProductController extends Controller
             'description'           => 'nullable|string',
             'properties'            => 'nullable|json',
             'video_urls'            => 'nullable|json',
-
-            // Массив НОВЫХ загружаемых файлов
             'new_images'            => 'nullable|array',
-            'new_images.*'          => 'image|mimes:jpeg,png,gif,bmp,tiff,webp|max:2048',
-            
-            // Массив СТАРЫХ имен файлов, которые нужно сохранить
+            'new_images.*'          => 'image|mimes:jpeg,png,gif,bmp,tiff,webp|max:' . (config('product.max_image_size_mb', 2) * 1024),
             'existing_images'       => 'nullable|array',
             'existing_images.*'     => 'string',
         ]);
-        
-        // Проверяем общее количество
-        $totalImages = count($request->input('existing_images', [])) + count($request->file('new_images', []));
-        if ($totalImages > 8) {
-            return response()->json(['message' => 'Общее количество изображений не может превышать 8.'], 422);
+
+        $existingImages = $request->input('existing_images', []);
+        $newFiles = $request->file('new_images') ?: [];
+        $totalImages = count($existingImages) + count($newFiles);
+        if ($totalImages > config('product.max_images_per_product', 8)) {
+            return response()->json(['message' => 'Общее количество изображений не может превышать ' . config('product.max_images_per_product', 8) . '.'], 422);
         }
-        
+
         $newImageNames = [];
-        // 1. Загружаем новые изображения
         if ($request->hasFile('new_images')) {
             foreach ($request->file('new_images') as $file) {
-                // Используем наш новый конвертер
-                $fileName = $this->storeImageAsWebp($file);
-                if ($fileName) {
+                try {
+                    $fileName = $this->storeImageAsWebp($file, $product->id);
                     $newImageNames[] = $fileName;
+                } catch (\Throwable $e) {
+                    // При ошибке — удалить только вновь сохранённые для этого запроса
+                    try {
+                        foreach ($newImageNames as $fn) {
+                            Storage::disk('public')->delete("products/{$product->id}/{$fn}");
+                        }
+                    } catch (\Throwable $_) {}
+                    try {
+                        logger()->error('Image processing failed while updating product #' . $product->id . ': ' . $e->getMessage(), [
+                            'exception' => $e,
+                        ]);
+                    } catch (\Throwable $logEx) {
+                        error_log('Logger failed: ' . $logEx->getMessage());
+                        error_log('Original image processing error: ' . $e->getMessage());
+                    }
+                    return response()->json(['message' => 'Ошибка обработки нового изображения: ' . $e->getMessage()], 422);
                 }
             }
         }
 
-        // 2. Собираем финальный список изображений
-        $existingImages = $request->input('existing_images', []);
         $finalImageArray = array_merge($existingImages, $newImageNames);
 
-        // 3. Находим и удаляем старые изображения, которых нет в новом списке
         $imagesToDelete = array_diff($product->image_url ?? [], $existingImages);
         foreach ($imagesToDelete as $fileName) {
-            // Теперь мы удаляем .webp файлы (и старые .jpg/.png, если они были)
-            Storage::disk('public')->delete('products/' . $fileName);
+            try {
+                Storage::disk('public')->delete("products/{$product->id}/" . $fileName);
+            } catch (\Throwable $_) {}
         }
 
-        // 4. Подготовка данных для обновления
         $dataToUpdate = $request->except(['new_images', 'existing_images', 'properties', 'video_urls']);
-        $dataToUpdate['image_url'] = $finalImageArray; // Обновляем массив имен
+        $dataToUpdate['image_url'] = $finalImageArray;
         $dataToUpdate['properties'] = json_decode($request->properties, true) ?? [];
         $dataToUpdate['video_urls'] = json_decode($request->video_urls, true) ?? [];
-        
-        // 5. Обновляем товар
+
         $product->update($dataToUpdate);
         $product->load('category');
-        
+
         return response()->json($product);
     }
 
@@ -202,31 +256,21 @@ class ProductController extends Controller
     {
         $this->authorize('delete', $product);
 
-        // Удаляем все связанные изображения с диска
-        if (is_array($product->image_url)) {
-            foreach ($product->image_url as $fileName) {
-                Storage::disk('public')->delete('products/' . $fileName);
-            }
+        try {
+            Storage::disk('public')->deleteDirectory('products/' . $product->id);
+        } catch (\Throwable $_) {
+            // ignore
         }
 
         $product->delete();
         return response()->json(null, 204);
     }
 
-    /**
-     * Возвращает список популярных товаров.
-     * В реальном проекте здесь была бы сложная логика (по просмотрам, заказам).
-     * Для теста мы просто возьмём 8 случайных товаров.
-     */
     public function popular()
     {
         return Product::with('category')->inRandomOrder()->take(8)->get();
     }
 
-    /**
-     * Возвращает список новинок.
-     * Просто берём 8 последних добавленных товаров.
-     */
     public function newest()
     {
         return Product::with('category')->latest()->take(8)->get();

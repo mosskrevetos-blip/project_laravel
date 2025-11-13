@@ -138,13 +138,14 @@
                 <!-- Блок вставки изображений -->
                 <v-col cols="12"><v-divider></v-divider></v-col>
                 <v-col cols="12">
-                   <h3 class="text-subtitle-1 mb-2">Изображения (до 8 шт.)</h3>
+                  <h3 class="text-subtitle-1 mb-2">Изображения (до 8 шт.)</h3>
                   
-                   <ImageUploadGrid
+                  <ImageUploadGrid
                     v-model="editedItem.image_url"
                     v-model:newFiles="newImages"
-                   />
-                   
+                    :product-id="editedItem.id"
+                  />
+                  
                 </v-col>
 
                 <!-- Блок для видео -->
@@ -176,11 +177,13 @@
               </v-row>
             </v-container>
           </v-card-text>
+
           <v-card-actions>
             <v-spacer></v-spacer>
             <v-btn color="grey" text @click="closeDialog" :disabled="isSaving">Отмена</v-btn>
             <v-btn color="primary" type="submit" :loading="isSaving">Сохранить</v-btn>
           </v-card-actions>
+
         </v-form>
       </v-card>
     </v-dialog>
@@ -199,9 +202,9 @@ const categoryStore = useCategoryStore();
 const route = useRoute();
 
 const form = ref(null);
-//стан вікна
+// состояние окна
 const dialog = ref(false);
-//збереження
+// сохранение
 const isSaving = ref(false);
 const errors = ref({});
 
@@ -245,38 +248,94 @@ const allCategoriesList = ref([]);
 const isLoadingCategories = ref(false);
 const showAllCategoriesSelector = ref(false);
 
+/**
+ * Построение иерархии категорий.
+ * Улучшено: явная проверка parent_id на null/undefined,
+ * и нормализация id/parent_id не проводится здесь (чтобы не переопределять исходные объекты).
+ */
 const buildHierarchy = (categories) => {
   const categoryMap = {};
   const result = [];
-  categories.forEach(c => categoryMap[c.id] = { ...c, children: [] });
+
   categories.forEach(c => {
-    if (c.parent_id && categoryMap[c.parent_id]) {
+    // Создаем копию, добавляем children
+    categoryMap[c.id] = { ...c, children: [] };
+  });
+
+  categories.forEach(c => {
+    // Если у категории есть родитель и он присутствует в карте — добавляем в children
+    if (c.parent_id !== null && c.parent_id !== undefined && categoryMap[c.parent_id]) {
       categoryMap[c.parent_id].children.push(categoryMap[c.id]);
     }
   });
+
   const flatten = (cats, depth = 0) => {
     cats.forEach(cat => {
       result.push({ ...cat, indentedTitle: '— '.repeat(depth) + cat.title });
-      if (cat.children.length) flatten(cat.children, depth + 1);
+      if (cat.children && cat.children.length) flatten(cat.children, depth + 1);
     });
   };
-  flatten(Object.values(categoryMap).filter(c => !c.parent_id));
+
+  // Корни — те, у которых parent_id === null или undefined
+  const roots = Object.values(categoryMap).filter(c => c.parent_id === null || c.parent_id === undefined);
+  flatten(roots);
   return result;
 };
 
+// --- НОВЫЕ ХЕЛПЕРЫ: карта всех категорий и вычисление глубины для подсказок ---
+const categoryById = computed(() => {
+  const map = {};
+  allCategoriesList.value.forEach(c => {
+    // нормализуем ключи, но не мутируем оригинал
+    map[c.id] = {
+      id: c.id,
+      parent_id: c.parent_id === null || c.parent_id === undefined ? null : c.parent_id,
+      title: c.title,
+    };
+  });
+  return map;
+});
 
-// "Предложенный" список (плоский) - он НЕ ИСПОЛЬЗУЕТ `buildHierarchy`
+function getCategoryDepth(cat) {
+  let depth = 0;
+  let parentId = cat.parent_id === null || cat.parent_id === undefined ? null : cat.parent_id;
+  while (parentId !== null && categoryById.value[parentId]) {
+    depth++;
+    parentId = categoryById.value[parentId].parent_id === null || categoryById.value[parentId].parent_id === undefined
+      ? null
+      : categoryById.value[parentId].parent_id;
+  }
+  return depth;
+}
+
+// -----------------------------
+// Изменения: hierarchicalSuggestedList — если suggested содержит весь список, возвращаем buildHierarchy (правильный порядок сверху вниз).
+// Раньше мы всегда мапили suggestedCategoryList (порядок API), из-за чего список "Основная категория" мог идти снизу вверх.
+// Конец изменений
 const hierarchicalSuggestedList = computed(() => {
-  // Если "предложенный" список равен "полному" списку, строим иерархию
+  // Если suggested — полный список (т.е. до поиска) — строим иерархический, упорядоченный список
   if (suggestedCategoryList.value.length === allCategoriesList.value.length) {
     return buildHierarchy(suggestedCategoryList.value);
   }
-  // Если это результат поиска, просто возвращаем его, добавив поле 'indentedTitle'
-  return suggestedCategoryList.value.map(cat => ({ ...cat, indentedTitle: cat.title }));
-});
-// "Полный" список (иерархический)
-const hierarchicalAllList = computed(() => buildHierarchy(allCategoriesList.value));
 
+  // Иначе (результат поиска) — добавляем indentedTitle на основе глубины в полном дереве
+  return suggestedCategoryList.value.map(cat => {
+    const normalized = {
+      ...cat,
+      parent_id: cat.parent_id === null || cat.parent_id === undefined ? null : cat.parent_id,
+      id: cat.id,
+    };
+    const depth = getCategoryDepth(normalized);
+    return {
+      ...normalized,
+      indentedTitle: '— '.repeat(depth) + (normalized.title || ''),
+    };
+  });
+});
+// -----------------------------
+
+// Полный иерархический список (использует buildHierarchy)
+const hierarchicalAllList = computed(() => buildHierarchy(allCategoriesList.value));
 
 let debounceTimer;
 const updateCategorySuggestions = async (searchTerm) => {
@@ -294,14 +353,15 @@ const updateCategorySuggestions = async (searchTerm) => {
   }
 };
 
+// Улучшенная логика: используем весь ввод (trim), а не только первое слово
 const onTitleInput = (title) => {
   if (editedItem.value.id) return; 
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    const firstWord = title.split(' ')[0];
-    if (firstWord.length > 2) {
-      updateCategorySuggestions(firstWord);
-    } else if (title.length === 0) {
+    const trimmed = (title || '').trim();
+    if (trimmed.length > 2) {
+      updateCategorySuggestions(trimmed);
+    } else if (trimmed.length === 0) {
       suggestedCategoryList.value = allCategoriesList.value;
     }
   }, 500);
@@ -333,7 +393,12 @@ function openDialog(item) {
     showAllCategoriesSelector.value = true;
   } else {
     editedItem.value = JSON.parse(JSON.stringify(defaultItem));
-    categoryStore.selectedCategoryAttributes = [];
+    // безопасная очистка selectedCategoryAttributes: если стор реализует метод - используем его
+    if (typeof categoryStore.clearSelectedCategoryAttributes === 'function') {
+      categoryStore.clearSelectedCategoryAttributes();
+    } else {
+      categoryStore.selectedCategoryAttributes = [];
+    }
     suggestedCategoryList.value = allCategoriesList.value;
   }
   dialog.value = true;
@@ -346,7 +411,11 @@ function closeDialog() {
 // 👇 ИСПРАВЛЕННАЯ ФУНКЦИЯ 'loadAttributes' 👇
 function loadAttributes(categoryId) {
   if (!categoryId) {
-      categoryStore.selectedCategoryAttributes = [];
+      if (typeof categoryStore.clearSelectedCategoryAttributes === 'function') {
+        categoryStore.clearSelectedCategoryAttributes();
+      } else {
+        categoryStore.selectedCategoryAttributes = [];
+      }
       return;
   };
   // Мы больше НЕ ОЧИЩАЕМ 'properties' здесь
@@ -427,4 +496,3 @@ async function deleteItem(item) {
   }
 
 </style>
-
