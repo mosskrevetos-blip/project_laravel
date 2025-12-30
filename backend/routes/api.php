@@ -21,6 +21,10 @@ use App\Http\Controllers\Api\AttributeController;
 
 Route::post('/orders/public', [OrderController::class, 'storePublic']);
 
+// CHANGED: expose delivery and payment methods for frontend
+Route::get('/delivery-methods', [OrderController::class, 'deliveryMethods']);
+Route::get('/payment-methods', [OrderController::class, 'paymentMethods']);
+
 // --- Товары ---
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/popular', [ProductController::class, 'popular']);

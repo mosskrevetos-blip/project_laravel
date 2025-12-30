@@ -8,6 +8,10 @@
       :loading="orderStore.loading"
       class="elevation-1"
     >
+      <template v-slot:item.purchaser="{ item }">
+        {{ item.buyer_last_name ? (item.buyer_last_name + ' ' + item.buyer_first_name) : (item.customer_name || '—') }}
+      </template>
+
       <template v-slot:item.products="{ item }">
         <ul class="pa-0">
           <li v-for="product in item.products" :key="product.id">
@@ -18,6 +22,10 @@
 
       <template v-slot:item.status="{ item }">
         <v-chip :color="getStatusColor(item.status)" small>{{ item.status }}</v-chip>
+      </template>
+
+      <template v-slot:item.payment_status="{ item }">
+        <v-chip :color="item.payment_status === 'paid' ? 'success' : (item.payment_status === 'failed' ? 'error' : 'grey')" small>{{ item.payment_status || 'pending' }}</v-chip>
       </template>
 
       <template v-slot:item.created_at="{ item }">
@@ -31,30 +39,56 @@
         </div>
       </template>
     </v-data-table>
+
+    <order-edit-modal
+      v-if="selectedOrder"
+      :open="isEditOpen"
+      :order="selectedOrder"
+      :delivery-methods="deliveryMethods"
+      :payment-methods="paymentMethods"
+      @close="closeEdit"
+      @saved="onSaved"
+    />
   </v-container>
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useOrderStore } from '@/stores/orderStore';
 import { useAuthStore } from '@/stores/authStore';
-import { formatDate } from '@/utils/formatter'; // <-- ИМПОРТИРУЕМ ФУНКЦИЮ
+import { formatDate } from '@/utils/formatter';
+import OrderEditModal from '@/components/OrderEditModal.vue';
+import apiClient from '@/api';
 
 const orderStore = useOrderStore();
 const authStore = useAuthStore();
 
 const headers = [
   { title: 'ID', key: 'id' },
-  { title: 'Покупатель', key: 'customer_name' },
+  { title: 'Покупатель', key: 'purchaser' },
   { title: 'Товары', key: 'products', sortable: false },
   { title: 'Сумма', key: 'total_price' },
   { title: 'Статус', key: 'status' },
+  { title: 'Оплата', key: 'payment_status' },
   { title: 'Дата', key: 'created_at' },
   { title: 'Действия', key: 'actions', sortable: false, align: 'end' },
 ];
 
-onMounted(() => {
-  orderStore.fetchOrders();
+const selectedOrder = ref(null);
+const isEditOpen = ref(false);
+const deliveryMethods = ref([]);
+const paymentMethods = ref([]);
+
+onMounted(async () => {
+  await orderStore.fetchOrders();
+  try {
+    const [d, p] = await Promise.all([apiClient.get('/delivery-methods'), apiClient.get('/payment-methods')]);
+    deliveryMethods.value = d.data;
+    paymentMethods.value = p.data;
+  } catch (e) {
+    deliveryMethods.value = [];
+    paymentMethods.value = [];
+  }
 });
 
 const getStatusColor = (status) => {
@@ -68,11 +102,19 @@ const getStatusColor = (status) => {
 };
 
 function editOrder(item) {
-  console.log('Редактировать заказ:', item);
-  alert('Функция редактирования заказов еще не реализована.');
+  selectedOrder.value = { ...item };
+  isEditOpen.value = true;
+}
+function closeEdit() {
+  isEditOpen.value = false;
+  selectedOrder.value = null;
+}
+function onSaved() {
+  // refresh list
+  orderStore.fetchOrders();
 }
 function deleteOrder(item) {
-  console.log('Удалить заказ:', item);
-  alert('Функция удаления заказов еще не реализована.');
+  if (!confirm(`Удалить заказ #${item.id}?`)) return;
+  orderStore.deleteProduct(item.id);
 }
 </script>
