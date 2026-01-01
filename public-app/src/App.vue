@@ -163,7 +163,7 @@
           ></v-btn>
           <v-btn icon><v-icon>mdi-bell-outline</v-icon></v-btn>
           <v-btn icon><v-icon>mdi-heart-outline</v-icon></v-btn>
-          <v-btn icon><v-icon>mdi-cart-outline</v-icon></v-btn>
+          <CartDrawer />
           <v-divider vertical class="mx-2"></v-divider>
           
           <!-- Если пользователь не авторизирован -->
@@ -224,12 +224,15 @@ import { ref, onMounted, onUnmounted, computed, watch} from 'vue';
 import { useTheme } from 'vuetify';
 import { useCategoryStore } from '@/stores/categoryStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useCartStore } from '@/stores/cartStore';
 import { useRouter, useRoute } from 'vue-router';
 import LoginDialog from '@/components/LoginDialog.vue';
 import RegisterDialog from '@/components/RegisterDialog.vue';
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue';
+import CartDrawer from '@/components/CartDrawer.vue';
 
 const categoryStore = useCategoryStore();
+const cartStore = useCartStore();
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
@@ -357,6 +360,7 @@ watch(() => authStore.isAuthenticated, (isAuth, wasAuth) => {
 
 onMounted(() => {
   categoryStore.fetchCategories();
+  cartStore.loadCart(); // Загружаем корзину из localStorage при монтировании
   const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   if (prefersDark) {
     theme.global.name.value = 'dark';
