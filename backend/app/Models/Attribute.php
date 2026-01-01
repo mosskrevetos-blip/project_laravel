@@ -28,6 +28,6 @@ class Attribute extends Model
 
     public function categories(): BelongsToMany
     {
-        return $this->belongsToMany(Category::class, 'attribute_category');
+        return $this->belongsToMany(Category::class, 'attribute_category', 'attribute_id', 'category_id');
     }
 }
