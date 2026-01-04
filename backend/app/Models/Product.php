@@ -25,6 +25,7 @@ class Product extends Model
         'sku',
         'quantity',
         'image_url',
+        'image_variants',
         'video_urls',
         'category_id',
         'secondary_category_id',
@@ -36,6 +37,7 @@ class Product extends Model
         'properties' => 'array',
         'video_urls' => 'array',
         'image_url'  => 'array',
+        'image_variants' => 'array',
     ];
     /**
      * Новый Scope для фильтрации товаров по пользователю.

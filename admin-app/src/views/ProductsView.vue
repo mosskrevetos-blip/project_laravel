@@ -14,8 +14,26 @@
       <template v-slot:item.category="{ item }">
         {{ item.category?.title || 'Без категории' }}
       </template>
+
       <template v-slot:item.actions="{ item }">
-        <v-icon class="mr-2" color="primary" @click="openDialog(item)">mdi-pencil</v-icon>
+        
+        <v-tooltip bottom>
+          <template #activator="{ props }">
+            <!-- CHANGED: добавил класс edit-icon, плавный переход цвета/opacity, и привязку opacity -->
+            <v-icon
+              class="mr-2 edit-icon"                         
+              v-bind="props"
+              :color="isLocked(item) ? 'grey' : 'primary'"  
+              @click="onEditClick(item)"
+              :title="editTitle(item)"
+              :style="{ cursor: isLocked(item) ? 'not-allowed' : 'pointer', opacity: isLocked(item) ? 0.6 : 1 }"
+            >
+              mdi-pencil
+            </v-icon>
+          </template>
+          <span>{{ editTooltip(item) }}</span>
+        </v-tooltip>
+
         <v-icon color="error" @click="deleteItem(item)">mdi-delete</v-icon>
       </template>
     </v-data-table>
@@ -117,6 +135,23 @@
                   </template>
                   <v-divider class="my-4"></v-divider>
                 </v-col>
+                <!-- Если ошибка загрузки атрибутов -->
+                <!-- <v-col cols="12" v-if="categoryStore.errorMessage">
+                  <v-alert type="error" dense outlined>
+                    {{ categoryStore.errorMessage }}
+                  </v-alert>
+                </v-col> -->
+
+                <v-container>
+                  <v-alert 
+                    v-if="categoryStore.errorMessage" 
+                    type="error" 
+                    text 
+                    class="mb-4"
+                  >
+                    {{ categoryStore.errorMessage }}
+                  </v-alert>
+                </v-container>
                 
                 <!-- Остальные общие поля -->
                 <v-col cols="12"><h3 class="text-subtitle-1 mb-2">Основная информация</h3></v-col>
@@ -144,6 +179,7 @@
                     v-model="editedItem.image_url"
                     v-model:newFiles="newImages"
                     :product-id="editedItem.id"
+                    :image-variants="editedItem.image_variants"
                   />
                   
                 </v-col>
@@ -311,7 +347,6 @@ function getCategoryDepth(cat) {
 // -----------------------------
 // Изменения: hierarchicalSuggestedList — если suggested содержит весь список, возвращаем buildHierarchy (правильный порядок сверху вниз).
 // Раньше мы всегда мапили suggestedCategoryList (порядок API), из-за чего список "Основная категория" мог идти снизу вверх.
-// Конец изменений
 const hierarchicalSuggestedList = computed(() => {
   // Если suggested — полный список (т.е. до поиска) — строим иерархический, упорядоченный список
   if (suggestedCategoryList.value.length === allCategoriesList.value.length) {
@@ -480,9 +515,41 @@ async function deleteItem(item) {
     }
   }
 }
+
+// --- Edit lock helpers (client-side) ---
+function isLocked(item) {
+  return productStore.isEditLocked(item.id);
+}
+function editRemainingSeconds(item) {
+  return Math.ceil(productStore.lockRemainingMs(item.id) / 1000);
+}
+function editTitle(item) {
+  if (isLocked(item)) {
+    return `Редактирование заблокировано (${editRemainingSeconds(item)} с)`;
+  }
+  return 'Редактировать';
+}
+function editTooltip(item) {
+  if (isLocked(item)) {
+    return `Редактирование заблокировано на ${editRemainingSeconds(item)} секунд`;
+  }
+  return 'Редактировать товар';
+}
+function onEditClick(item) {
+  if (isLocked(item)) {
+    // игнорируем клик; можно показать toast если нужно
+    return;
+  }
+  openDialog(item);
+}
 </script>
 
 <style scoped>
+
+  .edit-icon {                                                   
+    transition: color 200ms ease, opacity 200ms ease;             
+    -webkit-transition: color 200ms ease, opacity 200ms ease;
+  }
 
   .cards{
     display: flex;

@@ -26,8 +26,14 @@ class Attribute extends Model
         return $this->hasMany(AttributeOption::class);
     }
 
+    // Зв'язок з категоріями
     public function categories(): BelongsToMany
     {
-        return $this->belongsToMany(Category::class);
+        return $this->belongsToMany(
+            Category::class,           // Указываем связанную модель
+            'attribute_category',      // Имя связи (pivot-таблицы)
+            'attribute_id',            // Внешний ключ на текущую модель (attributes)
+            'category_id'              // Внешний ключ на связанную модель (categories)
+        );
     }
 }

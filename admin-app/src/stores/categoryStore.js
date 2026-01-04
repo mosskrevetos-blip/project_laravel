@@ -7,6 +7,7 @@ export const useCategoryStore = defineStore('categories', {
     categories: [], // Список всех категорий
     selectedCategoryAttributes: [],
     loading: false, // Флаг для отслеживания загрузки
+    errorMessage: null, // Сообщение об ошибке загрузки атрибутов
     error: null, // Для хранения ошибок
   }),
 
@@ -24,6 +25,11 @@ export const useCategoryStore = defineStore('categories', {
     clearSelectedCategoryAttributes() {
       this.selectedCategoryAttributes = [];
     },
+
+    clearErrorMessage() {
+      this.errorMessage = null; // Удаляем сообщение об ошибке
+    },
+    
     // 1. Получить все категории с сервера
     async fetchCategories() {
       this.loading = true;
@@ -52,16 +58,15 @@ export const useCategoryStore = defineStore('categories', {
     },
     
     async fetchAttributesForCategory(categoryId) {
-      if (!categoryId) {
-          this.selectedCategoryAttributes = [];
-          return;
-      }
+      this.selectedCategoryAttributes = [];
+
       try {
-          const response = await apiClient.get(`/categories/${categoryId}/attributes`);
-          this.setSelectedCategoryAttributes(response.data);
+        const response = await apiClient.get(`/categories/${categoryId}/attributes`);
+        this.setSelectedCategoryAttributes(response.data); // Устанавливаем новые атрибуты
       } catch (error) {
-          console.error('Ошибка при загрузке атрибутов:', error);
-          this.selectedCategoryAttributes = [];
+        // Если произошла ошибка загрузки атрибутов
+        this.setSelectedCategoryAttributes([]); // Сбрасываем атрибуты
+        this.errorMessage = 'Ошибка загрузки аттрибутов, перезагрузите страницу!'; // Устанавливаем сообщение об ошибке
       }
     },
 

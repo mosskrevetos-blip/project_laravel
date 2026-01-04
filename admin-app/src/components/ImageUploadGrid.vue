@@ -41,19 +41,23 @@
 
           <!-- Слот с превью -->
           <div v-else class="image-preview-wrapper">
-            <v-img
+            <!-- Существующее изображение (серверное) -->
+            <ProductResponsiveImage
+              v-if="slot.type === 'existing'"
+              :product-id="productId"
+              :filename="slot.name"
+              :image-variants="imageVariants"
+              :alt-text="slot.name"
+              :style-object="{ height: '120px' }"
+            />
+
+            <!-- Новое локальное изображение: показываем preview URL -->
+            <img
+              v-else-if="slot.type === 'new'"
               :src="slot.url"
-              height="120"
-              width="100%"
-              cover
-              class="rounded"
-            >
-              <template v-slot:placeholder>
-                <div class="d-flex align-center justify-center fill-height">
-                  <v-progress-circular indeterminate color="grey-lighten-1"></v-progress-circular>
-                </div>
-              </template>
-            </v-img>
+              alt="preview"
+              style="width:100%; height:120px; object-fit:cover; display:block;"
+            />
 
             <!-- Кнопка удаления -->
             <v-btn
@@ -78,6 +82,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
+import ProductResponsiveImage from '@/components/ProductResponsiveImage.vue';
 
 /* Добавления
    Пояснение: теперь компонент эмитит событие 'reorder' с комбинированным порядком,
@@ -108,7 +113,11 @@ const props = defineProps({
   productId: {
     type: [Number, String],
     default: null,
-  }
+  },
+  imageVariants: {                                      
+    type: Object,                                      
+    default: () => ({}),                              
+  },
 });
 
 // Изменения: добавлен emit 'reorder'

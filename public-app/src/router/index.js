@@ -19,44 +19,32 @@ const router = createRouter({
     {
       path: '/about',
       name: 'about',
-      // route level code-splitting
-      // this generates a separate chunk (About.[hash].js) for this route
-      // which is lazy-loaded when the route is visited.
       component: () => import('../views/AboutView.vue'),
+    },
+    {
+      path: '/product/:id',
+      name: 'product.show',
+      component: () => import('../views/ProductPage.vue'),
+      props: true,
+    },
+    // CHANGED: checkout routes
+    {
+      path: '/checkout',
+      name: 'checkout',
+      component: () => import('../views/CheckoutPage.vue'),
+    },
+    {
+      path: '/checkout/thank-you',
+      name: 'checkout.thankyou',
+      component: () => import('../views/CheckoutThankYou.vue'),
+      props: (route) => ({ orders: route.params.orders || null }),
     },
   ],
 })
 
-// навігаційний страж
-// router.beforeEach(async (to, from, next) => {
-//   const authStore = useAuthStore();
-//   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
-
-//   // Мы даём `main.js` время на первоначальную проверку пользователя.
-//   // Но если пользователь уже в состоянии, `getUser` не будет делать лишний запрос.
-//   await authStore.getUser();
-
-//   if (requiresAuth && !authStore.isAuthenticated) {
-//     // Если страница требует входа, а пользователь - гость,
-//     // ПРИНУДИТЕЛЬНО перенаправляем его на главную страницу.
-//     next({ name: 'home' });
-//   } else {
-//     // Во всех остальных случаях - разрешаем переход.
-//     next();
-//   }
-// });
-
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
-  
-  // Мы больше не проверяем requiresAuth, так как все страницы
-  // на публичном сайте теперь доступны гостям.
-  // Защищённая логика остаётся только на уровне кнопок.
-  
-  // Но мы по-прежнему проверяем, не залогинен ли пользователь,
-  // чтобы `authStore.isAuthenticated` был актуален
   await authStore.getUser();
-
   next();
 });
 

@@ -27,23 +27,6 @@ class CategoryController extends Controller
 
     public function store(Request $request)
     {
-
-        // --- НАЧАЛО ДИАГНОСТИЧЕСКОГО КОДА ---
-        // Log::info('--- CATEGORY STORE REQUEST START ---');
-        // $user = Auth::user(); // Пытаемся получить пользователя
-        // if ($user) {
-        //     Log::info('User Authenticated!', [
-        //         'id' => $user->id, 
-        //         'name' => $user->name,
-        //         'roles' => $user->roles->pluck('slug')->toArray()
-        //     ]);
-        // } else {
-        //     Log::info('User is NOT Authenticated (Auth::user() is null).');
-        // }
-        // Log::info('--- CATEGORY STORE REQUEST END ---');
-        // --- КОНЕЦ ДИАГНОСТИЧЕСКОГО КОДА ---
-
-
         // 1. Проверка прав. 
         // Laravel уже сделал это за нас благодаря middleware в файле routes/api.php,
         // но для ясности можно продублировать здесь.
@@ -110,19 +93,31 @@ class CategoryController extends Controller
 
     public function getAttributes(Category $category)
     {
-        // --- НАЧАЛО ДИАГНОСТИЧЕСКОГО КОДА ---
-        Log::info('--- GET ATTRIBUTES FOR CATEGORY ---');
-        Log::info('Запрошена категория:', ['id' => $category->id, 'title' => $category->title]);
 
-        // Выполняем запрос
-        $attributes = $category->attributes()->with('options')->get();
+        Log::info('Метод getAttributes вызван', ['category_id' => $category->id]);
 
-        Log::info('Найдено атрибутов:', ['count' => $attributes->count()]);
-        Log::info('Данные атрибутов:', $attributes->toArray());
-        Log::info('--- GET ATTRIBUTES END ---');
-        // --- КОНЕЦ ДИАГНОСТИЧЕСКОГО КОДА ---
+        try {
 
-        return $attributes;
+            $rawAttributesQuery = $category->attributes(); // Запускаем только связь
+            Log::info('Результат raw запрос attributes():', ['attributesQuery' => $rawAttributesQuery->toSql()]);
+
+            $attributes = $category->attributes()->with('options')->get();
+            
+            if ($attributes->isEmpty()) {
+                Log::warning('Нет атрибутов для категории', ['id' => $category->id]);
+                return response()->json(['message' => 'Нет атрибутов для указанной категории'], 404);
+            }
+            
+
+            Log::info('Найдено атрибутов:', ['count' => $attributes->count()]);
+            return response()->json($attributes, 200);
+        } catch (\Exception $e) {
+            Log::error('Ошибка при получении атрибутов категории', [
+                'category_id' => $category->id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => 'Ошибка сервера при обработке запроса'], 500);
+        }
     }
 
     /**
