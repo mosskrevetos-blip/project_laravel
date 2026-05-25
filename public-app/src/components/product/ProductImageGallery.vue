@@ -1,3 +1,4 @@
+// public-app/src/components/product/ProductImageGallery.vue
 <template>
   <div class="product-image-gallery">
     <v-sheet class="gallery-sheet" elevation="1">
@@ -91,7 +92,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import ProductResponsiveImagePublic from '@/components/ProductResponsiveImagePublic.vue';
+import ProductResponsiveImagePublic from '@/components/product/ProductResponsiveImagePublic.vue';
 
 const props = defineProps({
   product: { type: Object, required: true },

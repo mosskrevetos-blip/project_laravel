@@ -1,3 +1,4 @@
+<!--public-app/src/components/product/ProductResponsiveImagePublic.vue-->
 <template>
   <div class="product-responsive-image" :style="wrapperStyle">
     <picture v-if="variants && variantsSizes.length">

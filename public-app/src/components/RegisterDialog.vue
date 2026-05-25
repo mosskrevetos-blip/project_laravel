@@ -1,11 +1,11 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue')" max-width="500px">
     <v-card class="elevation-12 pa-4">
-      <v-card-title class="text-h5 text-center">Регистрация</v-card-title>
+      <v-card-title class="text-h5 text-center">Реєстрація</v-card-title>
       <v-card-text>
         <v-form @submit.prevent="handleRegister">
           <v-text-field
-            label="Имя"
+            label="Ім'я"
             prepend-inner-icon="mdi-account-outline"
             type="text"
             v-model="formData.name"
@@ -36,7 +36,7 @@
           ></v-text-field>
 
           <v-text-field
-            label="Подтвердите пароль"
+            label="Підтвердіть пароль"
             prepend-inner-icon="mdi-lock-outline"
             type="password"
             v-model="formData.password_confirmation"
@@ -56,15 +56,15 @@
             block
             size="large"
           >
-            Зарегистрироваться
+            Зареєструватися
           </v-btn>
         </v-form>
       </v-card-text>
       <v-card-actions class="justify-center">
-        <v-btn variant="text" size="small" @click="$emit('open-forgot-password')">Забыли пароль?</v-btn>
+        <v-btn variant="text" size="small" @click="$emit('open-forgot-password')">Забули пароль?</v-btn>
         <v-divider vertical class="mx-2"></v-divider>
-        <span class="text-grey">Уже есть аккаунт?</span>
-        <v-btn variant="text" size="small" @click="$emit('open-login')">Войти</v-btn>
+        <span class="text-grey">Вже є акаунт?</span>
+        <v-btn variant="text" size="small" @click="$emit('open-login')">Увійти</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -93,7 +93,7 @@ const authStore = useAuthStore();
 const handleRegister = async () => {
   error.value = null;
   if (formData.value.password !== formData.value.password_confirmation) {
-    error.value = 'Пароли не совпадают.';
+    error.value = 'Паролі не співпадають.';
     return;
   }
 
@@ -102,12 +102,12 @@ const handleRegister = async () => {
     await authStore.register(formData.value);
     emit('update:modelValue', false);
   } catch (err) {
-    // Обработка ошибок валидации от Laravel
+    // Обробка помилок валідації від Laravel
     const errors = err.response?.data?.errors;
     if (errors) {
       error.value = Object.values(errors).flat().join(' ');
     } else {
-      error.value = 'Произошла ошибка регистрации.';
+      error.value = 'Сталася помилка реєстрації.';
     }
   } finally {
     loading.value = false;

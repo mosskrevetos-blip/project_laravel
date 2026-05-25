@@ -2,12 +2,25 @@
 
 import { defineStore } from 'pinia';
 import apiClient from '@/api';
-import router from '@/router'; // Импортируем роутер для перенаправлений
+import router from '@/router'; 
+import { useCartStore } from '@/stores/cartStore';
+import { useFavoriteStore } from '@/stores/favoriteStore';
+import { useFavoriteSellerStore } from '@/stores/favoriteSellerStore';
 
 export const useAuthStore = defineStore('publicAuth', {
   state: () => ({
     user: JSON.parse(localStorage.getItem('user')) || null,
     redirectAfterLogin: null,
+
+    postLoginAction: null,
+    returnToRoute: null,
+
+    ui: {
+      loginDialogOpen: false,
+      registerDialogOpen: false,
+      forgotPasswordDialogOpen: false,
+    },
+
   }),
 
   getters: {
@@ -18,88 +31,190 @@ export const useAuthStore = defineStore('publicAuth', {
   },
 
   actions: {
-    // 👇 НОВЫЙ МЕТОД ДЛЯ ВХОДА В СИСТЕМУ 👇
-    // async login(credentials) {
-    //   // Сначала получаем CSRF-cookie
-    //   await apiClient.getCsrfCookie();
-    //   // Отправляем запрос на эндпоинт /login, который создал Breeze
-    //   await apiClient.post('/login', credentials);
-    //   // После успешного входа, получаем данные пользователя
-    //   await this.getUser();
-      
-    //   // --- 2. ОБНОВЛЁННАЯ ЛОГИКА ПЕРЕНАПРАВЛЕНИЯ ---
-    //   // Проверяем, есть ли сохранённый путь
-    //   const redirectPath = this.redirectAfterLogin;
-    //   this.redirectAfterLogin = null; // Очищаем "память" после использования
 
-    //   if (redirectPath) {
-    //     // Если есть - идём туда
-    //     await router.push(redirectPath);
-    //   } else {
-    //     // Если нет (обычный вход) - идём на главную
-    //     await router.push({ name: 'home' });
-    //   }
-    // },
+    openLoginDialog() {
+      // запомнить страницу, с которой открыли диалог
+      const r = router.currentRoute.value;
+      this.setReturnToRoute({
+        name: r.name,
+        params: r.params,
+        query: r.query,
+      });
 
-    async login(credentials) {
-      await apiClient.getCsrfCookie();
-      await apiClient.post('/login', credentials);
-      await this.getUser(); // Получаем и сохраняем пользователя
-
-      // --- ИЗМЕНЁННАЯ ЛОГИКА ПЕРЕНАПРАВЛЕНИЯ ---
-      // 1. Читаем сохранённый путь из sessionStorage
-      const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
-      
-      // 2. Сразу удаляем его, чтобы он не сработал в следующий раз
-      sessionStorage.removeItem('redirectAfterLogin');
-
-      if (redirectUrl) {
-        // 3. Если путь был (например, в админку), делаем "жёсткий" редирект
-        window.location.href = redirectUrl;
-      } else {
-        // 4. Если нет (обычный вход) - идём на главную
-        await router.push({ name: 'home' });
-      }
+      this.ui.forgotPasswordDialogOpen = false;
+      this.ui.registerDialogOpen = false;
+      this.ui.loginDialogOpen = true;
     },
 
-    async register(userData) {
-      await apiClient.getCsrfCookie();
-      // Отправляем запрос на эндпоинт /register
-      await apiClient.post('/register', userData);
-      // После успешной регистрации, Breeze автоматически логинит пользователя,
-      // поэтому мы просто запрашиваем его данные
-      await this.getUser();
-      // И перенаправляем на главную
+    openRegisterDialog() {
+      const r = router.currentRoute.value;
+      this.setReturnToRoute({
+        name: r.name,
+        params: r.params,
+        query: r.query,
+      });
+
+      this.ui.forgotPasswordDialogOpen = false;
+      this.ui.loginDialogOpen = false;
+      this.ui.registerDialogOpen = true;
+    },
+
+    openForgotPasswordDialog() {
+      const r = router.currentRoute.value;
+      this.setReturnToRoute({
+        name: r.name,
+        params: r.params,
+        query: r.query,
+      });
+
+      this.ui.loginDialogOpen = false;
+      this.ui.registerDialogOpen = false;
+      this.ui.forgotPasswordDialogOpen = true;
+    },
+
+    closeAllAuthDialogs() {
+      this.ui.loginDialogOpen = false;
+      this.ui.registerDialogOpen = false;
+      this.ui.forgotPasswordDialogOpen = false;
+    },
+
+    setPostLoginAction(action) {
+      this.postLoginAction = action;
+    },
+    clearPostLoginAction() {
+      this.postLoginAction = null;
+    },
+
+    setReturnToRoute(route) {
+      // route: { name, params, query } или { path }
+      this.returnToRoute = route;
+    },
+    clearReturnToRoute() {
+      this.returnToRoute = null;
+    },
+
+    async finalizeAuthFlow() {
+      // закрываем модалки
+      this.closeAllAuthDialogs();
+
+      // 1) если есть postLoginAction — выполняем
+      if (this.postLoginAction) {
+        const action = this.postLoginAction;
+        this.clearPostLoginAction();
+        await action();
+        // важно: returnToRoute можно оставить или очистить — я бы очищал
+        this.clearReturnToRoute();
+        return;
+      }
+
+      // 2) если есть returnToRoute — возвращаемся туда
+      if (this.returnToRoute?.name) {
+        const to = this.returnToRoute;
+        this.clearReturnToRoute();
+        await router.push(to);
+        return;
+      }
+
+      // 3) fallback
       await router.push({ name: 'home' });
     },
 
-    // 👇 НОВЫЙ МЕТОД ДЛЯ ПРИНУДИТЕЛЬНОЙ ПРОВЕРКИ 👇
+
+    // Метод для входу користувача
+    async login(credentials) {
+      await apiClient.getCsrfCookie();
+      await apiClient.post('/login', credentials);
+      await this.getUser(); // Отримуємо і зберігаємо користувача
+
+      // Синхронізація кошика після входу
+      const cartStore = useCartStore();
+      await cartStore.syncWithServer();
+
+      // Синхронізація обраного після входу
+      const favoriteStore = useFavoriteStore();
+      await favoriteStore.syncWithServer();
+
+      // Завантаження обраних продавців
+      const favoriteSellerStore = useFavoriteSellerStore();
+      await favoriteSellerStore.loadFromServer();
+
+      const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
+      sessionStorage.removeItem('redirectAfterLogin');
+
+      if (redirectUrl) {
+        this.closeAllAuthDialogs();
+        this.clearPostLoginAction();
+        this.clearReturnToRoute();
+        window.location.href = redirectUrl;
+        return;
+      }
+
+      await this.finalizeAuthFlow();
+    },
+
+
+    // Метод для реєстрації нового користувача
+    async register(userData) {
+      await apiClient.getCsrfCookie();
+      // Відправляємо запит на ендпоінт /register
+      await apiClient.post('/register', userData);
+      // Після успішної реєстрації, Breeze автоматично логінить користувача,
+      // тому ми просто запитуємо його дані та зберігаємо їх у стані магазину
+      await this.getUser();
+
+      // Синхронизація кошика після реєстрації (якщо користувач був неавторизованим)
+      const cartStore = useCartStore();
+      await cartStore.syncWithServer();
+
+      // Синхронізація обраного після реєстрації
+      const favoriteStore = useFavoriteStore();
+      await favoriteStore.syncWithServer();
+
+      // Завантаження обраних продавців після реєстрації
+      const favoriteSellerStore = useFavoriteSellerStore();
+      await favoriteSellerStore.loadFromServer();
+
+      await this.finalizeAuthFlow();
+    },
+
+    
+    // Метод для оновлення даних користувача (наприклад, після зміни профілю)
     async revalidateUser() {
       try {
         const response = await apiClient.get('/user');
-        // Если успешно - обновляем данные
+        // Якщо успішно - оновлюємо дані
         this.user = response.data;
         localStorage.setItem('user', JSON.stringify(response.data));
+
+        // ПЕРЕЗАВАНТАЖУЄМО КОШИК З СЕРВЕРА ПІСЛЯ РЕВАЛІДАЦІЇ
+        const cartStore = useCartStore();
+        await cartStore.loadFromServer();
+
       } catch (error) {
-        // Если ошибка (например, 401) - разлогиниваем пользователя на фронтенде
+        // Якщо помилка (наприклад, 401) - розлогінюємо користувача на фронтенді
         this.user = null;
         localStorage.removeItem('user');
       }
     },
 
-    // 👇 НОВЫЙ МЕТОД ДЛЯ ЗАПРОСА СБРОСА ПАРОЛЯ 👇
+
+    // метод для відправки запиту на скидання пароля (забули пароль)
     async forgotPassword(email) {
       await apiClient.getCsrfCookie();
-      // Отправляем запрос на эндпоинт /forgot-password
+      // Відправляємо запит на ендпоінт /forgot-password
       await apiClient.post('/forgot-password', { email });
     },
-    // 👇 НОВЫЙ МЕТОД ДЛЯ УСТАНОВКИ НОВОГО ПАРОЛЯ 👇
+
+
+    // метод для встановлення нового пароля після отримання посилання зі скидання пароля
     async resetPassword(resetData) {
       await apiClient.getCsrfCookie();
-      // Отправляем запрос на эндпоинт /reset-password
+      // Відправляємо запит на ендпоінт /reset-password
       await apiClient.post('/reset-password', resetData);
     },
 
+
+    // Метод для отримання даних поточного користувача (використовується після входу та для перевірки сесії)
     async getUser() {
       if (this.user) return;
       try {
@@ -112,13 +227,22 @@ export const useAuthStore = defineStore('publicAuth', {
       }
     },
 
+
+    // Метод для виходу користувача
     async logout() {
       try {
         await apiClient.post('/logout');
       } finally {
         this.user = null;
         localStorage.removeItem('user');
-        // Перезагружаем страницу, чтобы применить изменения и сбросить состояние
+        
+        // Після виходу очищуємо кошик на фронтенді (бо він більше не прив'язаний до користувача)
+        const cartStore = useCartStore();
+        cartStore.clear();
+
+        this.closeAllAuthDialogs();
+
+        // Перезавантажуємо сторінку, щоб застосувати зміни та скинути стан всіх сторінок
         window.location.reload();
       }
     },

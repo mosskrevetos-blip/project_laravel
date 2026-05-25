@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class Product extends Model
 {
-    // используется для фабрики
+    // використання фабрики для моделі
     use HasFactory;
 
     /**
@@ -20,10 +21,12 @@ class Product extends Model
      */
     protected $fillable = [
         'title',
+        'slug',
         'description',
         'price',
         'sku',
         'quantity',
+        'rating',
         'image_url',
         'image_variants',
         'video_urls',
@@ -31,6 +34,11 @@ class Product extends Model
         'secondary_category_id',
         'city',
         'properties',
+        'moderation_status',
+        'is_paid',
+        'is_visible',
+        'deleted_by_user',
+        'deleted_by_admin',
     ];
 
     protected $casts = [
@@ -38,25 +46,83 @@ class Product extends Model
         'video_urls' => 'array',
         'image_url'  => 'array',
         'image_variants' => 'array',
+        'is_paid' => 'boolean',
+        'is_visible' => 'boolean',
+        'deleted_by_user' => 'boolean',
+        'deleted_by_admin' => 'boolean',
+        'rating' => 'integer',
     ];
+
+
+    // Автоматична генерація slug при створенні та оновленні товару
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($product) {
+            if (empty($product->slug)) {
+                $product->slug = static::generateUniqueSlug($product->title);
+            }
+        });
+
+        static::updating(function ($product) {
+            if ($product->isDirty('title') && empty($product->slug)) {
+                $product->slug = static::generateUniqueSlug($product->title);
+            }
+        });
+    }
+    
+
     /**
-     * Новый Scope для фильтрации товаров по пользователю.
-     * Название метода должно начинаться со слова "scope".
+     * Генерація унікального slug
+     */
+    protected static function generateUniqueSlug($title)
+    {
+        $slug = Str::slug($title);
+        $originalSlug = $slug;
+        $count = 1;
+
+        // Перевірка унікальності slug
+        while (static::where('slug', $slug)->exists()) {
+            $slug = "{$originalSlug}-{$count}";
+            $count++;
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Отримати URL товару
+     */
+    public function getUrlAttribute()
+    {
+        return "/product/{$this->id}-{$this->slug}";
+    }
+
+
+    /**
+     * Scope для "живих" товарів (те, що бачать покупці на сайті)
+     */
+    public function scopeActive(Builder $query): void
+    {
+        $query->where('moderation_status', 'approved')
+              ->where('is_visible', true)
+              ->where('deleted_by_user', false)
+              ->where('deleted_by_admin', false);
+    }
+
+    /**
+     * Фільтрація товарів по користувачу (для кабінету продавця)
      */
     public function scopeForUser(Builder $query): void
     {
-        // Получаем текущего пользователя
         $user = Auth::user();
 
-        // Если пользователь авторизован и он НЕ админ,
-        // показываем только его товары.
-        // Это правило будет работать и для 'seller', и для 'user', и для любой другой роли.
         if ($user && !$user->hasRole('admin')) {
-            $query->where('user_id', $user->id);
+            $query->where('user_id', $user->id)
+                  // Продавець не бачить те, що сам відправив у "кошик"
+                    ->where('deleted_by_user', false); 
         }
-
-        // Если пользователь - админ, условие не сработает, и он увидит все товары.
-        // Если пользователь - гость ($user = null), он также увидит все товары.
     }
 
     // Зв'язок з користувачем
@@ -65,21 +131,21 @@ class Product extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Связь с категорией
+    // Зв'язок з категорією
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
     /**
-     * Get the secondary category that the product belongs to.
+     * Отримати вторинну категорію, до якої належить товар.
      */
     public function secondaryCategory(): BelongsTo
     {
         return $this->belongsTo(Category::class, 'secondary_category_id');
     }
 
-    // Звёязок з замовленнями
+    // Зв'язок з замовленнями
     public function orders(): BelongsToMany
     {
         return $this->belongsToMany(Order::class)->withPivot('quantity', 'price');

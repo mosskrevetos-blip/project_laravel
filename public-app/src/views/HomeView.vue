@@ -9,33 +9,36 @@
         height="400px"
         cover
       >
-        <v-card-title class="text-white text-h3">Сезонная распродажа</v-card-title>
+        <v-card-title class="text-white text-h3">Сезонний розпродаж</v-card-title>
         <v-card-text class="text-white">
-          Лучшие предложения на электронику этого лета!
+          Кращі пропозиції на електроніку цього літа!
         </v-card-text>
       </v-img>
     </v-card>
 
-    <!-- Карусель с популярными товарами -->
-    <ProductCarousel title="Популярные товары" :products="productStore.popular" />
+    <!-- Карусель з популярними товарами -->
+    <ProductCarousel title="Популярні товари" :products="productStore.popular" :loading="loading" />
 
-    <!-- Карусель с новинками -->
-    <ProductCarousel title="Новинки" :products="productStore.newest" />
+    <!-- Карусель з новинками -->
+    <ProductCarousel title="Новинки" :products="productStore.newest" :loading="loading" />
     
-    <!-- Здесь можно будет добавить другие карусели -->
+    <!-- Тут можна буде додати інші каруселі -->
 
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useProductStore } from '@/stores/productStore';
-import ProductCarousel from '@/components/ProductCarousel.vue';
+import ProductCarousel from '@/components/product/ProductCarousel.vue';
 
 const productStore = useProductStore();
+const loading = ref(true);
 
-onMounted(() => {
-  productStore.fetchPopular();
-  productStore.fetchNewest();
+onMounted(async () => {
+  loading.value = true;
+  await productStore.fetchPopular();
+  await productStore.fetchNewest();
+  loading.value = false;
 });
 </script>

@@ -15,12 +15,7 @@ use App\Services\ImageService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
-/**
- * ProductController
- *
- * Обновлённый: теперь диспетчит GenerateImageVariantsJob вместо синхронной генерации.
- * Сохранение оригиналов и удаление вариантов остаются прежними.
- */
+
 class ProductController extends Controller
 {
     use AuthorizesRequests;
@@ -40,8 +35,8 @@ class ProductController extends Controller
     }
 
     /**
-     * Конвертирует загруженный файл в webp и сохраняет в storage в папку продукта.
-     * Возвращает имя файла (с расширением .webp)
+     * Конвертує завантажений файл у webp та зберігає у storage в папку продукту.
+     * Повертає ім'я файлу (з розширенням .webp)
      */
     private function storeImageAsWebp(UploadedFile $file, int $productId): string
     {
@@ -99,12 +94,12 @@ class ProductController extends Controller
     }
 
     /**
-     * Сохраняет основной файл (webp) и ДИСПЕТЧИТ задачу на генерацию вариантов.
-     * Возвращает имя основного файла.
+     * Зберігає основний файл (webp) та диспетчить задачу на генерацію варіантів.
+     * Повертає ім'я основного файлу.
      */
     private function storeImageAndDispatchJob(UploadedFile $file, int $productId): string
     {
-        // 1) сохранить основной файл
+        // 1) зберегти основний файл
         $fileName = $this->storeImageAsWebp($file, $productId);
 
         // 2) dispatch job to generate variants asynchronously — ensure dispatch after DB commit
@@ -123,8 +118,11 @@ class ProductController extends Controller
         return $fileName;
     }
 
+
+    // метод для створення товару
     public function store(Request $request)
     {
+        // Авторизація: тільки продавці та адміністратори можуть створювати товари
         $this->authorize('create', Product::class);
 
         $validated = $request->validate([
@@ -148,6 +146,13 @@ class ProductController extends Controller
             $dataToCreate['image_url'] = [];
             $dataToCreate['properties'] = json_decode($request->properties, true) ?? [];
             $dataToCreate['video_urls'] = json_decode($request->video_urls, true) ?? [];
+            // По замовчуванню потрібне значення 'pending'
+            // Зараз стоять данны для тестування без модерації, але в майбутньому це буде важливо для процесу модерації
+            $dataToCreate['moderation_status'] = 'approved';
+            $dataToCreate['is_paid'] = true;
+            $dataToCreate['is_visible'] = false;
+            $dataToCreate['deleted_by_user'] = false;
+            $dataToCreate['deleted_by_admin'] = false;
 
             $product = Auth::user()->products()->create($dataToCreate);
 
@@ -174,7 +179,7 @@ class ProductController extends Controller
                         }
 
                         DB::rollBack();
-                        return response()->json(['message' => 'Ошибка обработки изображения: ' . $e->getMessage()], 422);
+                        return response()->json(['message' => 'Помилка обробки зображення: ' . $e->getMessage()], 422);
                     }
                 }
             }
@@ -188,18 +193,39 @@ class ProductController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("ProductController@store: exception: " . $e->getMessage());
-            return response()->json(['message' => 'Failed to create product', 'error' => $e->getMessage()], 500);
+            return response()->json(['message' => 'Не вдалося створити товар', 'error' => $e->getMessage()], 500);
         }
     }
 
-    public function show(Product $product)
+
+    // метод для отримання інформації про конкретний товар
+    public function show(Request $request, Product $product, $slug = null)
     {
-        return $product;
+        // Загружаем отношения
+        $product->load('category', 'user');
+
+        // ✅ Если запрос через API — не делаем редирект
+        if ($request->expectsJson()) {
+            return response()->json($product);
+        }
+
+        // ✅ Для браузерных запросов — редирект на правильный URL
+        if ($slug !== $product->slug) {
+            return redirect("/products/{$product->id}-{$product->slug}", 301);
+        }
+
+        return response()->json($product);
     }
 
+
+    // метод для оновлення товару
     public function update(Request $request, Product $product)
     {
         $this->authorize('update', $product);
+
+        if ($product->deleted_by_user) {
+            return response()->json(['message' => 'Не можна редагувати видалений товар'], 403);
+        }
 
         $validated = $request->validate([
             'title'                 => 'required|string|max:255',
@@ -222,7 +248,7 @@ class ProductController extends Controller
         $newFiles = $request->file('new_images') ?: [];
         $totalImages = count($existingImages) + count($newFiles);
         if ($totalImages > config('product.max_images_per_product', 8)) {
-            return response()->json(['message' => 'Общее количество изображений не может превышать ' . config('product.max_images_per_product', 8) . '.'], 422);
+            return response()->json(['message' => 'Загальна кількість зображень не може перевищувати ' . config('product.max_images_per_product', 8) . '.'], 422);
         }
 
         DB::beginTransaction();
@@ -242,7 +268,7 @@ class ProductController extends Controller
                             }
                         } catch (\Throwable $_) {}
                         DB::rollBack();
-                        return response()->json(['message' => 'Ошибка обработки нового изображения: ' . $e->getMessage()], 422);
+                        return response()->json(['message' => 'Помилка обробки нового зображення: ' . $e->getMessage()], 422);
                     }
                 }
             }
@@ -284,7 +310,7 @@ class ProductController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("ProductController@update: exception: " . $e->getMessage());
-            return response()->json(['message' => 'Failed to update product', 'error' => $e->getMessage()], 500);
+            return response()->json(['message' => 'Не вдалося оновити товар', 'error' => $e->getMessage()], 500);
         }
     }
 

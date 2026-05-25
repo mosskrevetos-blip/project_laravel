@@ -33,6 +33,7 @@ class Order extends Model
         'payment_method_id',
         'city',
         'address',
+        'comment',
         // новые: payment/tracking
         'payment_status',
         'paid_at',

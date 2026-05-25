@@ -23,6 +23,10 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'seller_rating',           // ✅ Рейтинг продавця
+        'buyer_rating',            // ✅ Рейтинг покупця
+        'wholesale_seller_rating', // ✅ Рейтинг гуртового продавця
+        'manufacturer_rating',     // ✅ Рейтинг виробника
     ];
 
     /**
@@ -34,6 +38,7 @@ class User extends Authenticatable
         'password',
         'remember_token',
     ];
+    
 
     /**
      * Get the attributes that should be cast.
@@ -45,6 +50,11 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'seller_rating' => 'integer',         
+            'buyer_rating' => 'integer',            
+            'wholesale_seller_rating' => 'integer', 
+            'manufacturer_rating' => 'integer',
+            'last_seen_at' => 'datetime',     
         ];
     }
 
@@ -66,5 +76,37 @@ class User extends Authenticatable
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
+    }
+
+    /**
+     * Зв'язок з кошиком
+     * дозволяє отримати всі товари в кошику користувача через $user->carts
+     */
+    public function carts(): HasMany
+    {
+        return $this->hasMany(Cart::class);
+    }
+
+    /**
+     * Обрані товари (через зв'язок many-to-many)
+     */
+    public function favoriteProducts(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'favorites')->withTimestamps();
+}
+
+    /**
+     * Обрані продавці (через зв'язок many-to-many)
+     */
+    public function favoriteSellerUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'favorite_sellers', 'user_id', 'seller_id')->withTimestamps();
+    }
+
+    // 
+    protected function serializeDate(\DateTimeInterface $date): string
+    {
+        // ISO 8601, например: 2026-04-11T10:48:02+00:00
+        return $date->format(\DateTime::ATOM);
     }
 }

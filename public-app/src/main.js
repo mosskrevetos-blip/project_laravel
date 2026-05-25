@@ -9,20 +9,20 @@ import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
 import App from './App.vue'
 import router from './router'
-import { useAuthStore } from './stores/authStore' // <-- Импортируем хранилище
+import { useAuthStore } from './stores/authStore' // Імпорт сховища автентифікації  
 
 const app = createApp(App)
-const pinia = createPinia() // <-- Создаем экземпляр Pinia
+const pinia = createPinia() // Створюємо екземпляр Pinia
 
-app.use(pinia) // <-- Подключаем Pinia
-app.use(router)
+app.use(pinia) // Підключаємо Pinia
+app.use(router) // Підключаємо маршрутизатор
 
 const vuetify = createVuetify({ components, directives })
 app.use(vuetify)
 
-// После подключения Pinia, мы можем использовать хранилище
+// Після підключення Pinia, ми можемо використовувати сховище
 const authStore = useAuthStore()
-// Принудительно перепроверяем статус пользователя с бэкендом при каждой загрузке
+// Примусово перепровіряємо статус користувача з бекендом при кожному завантаженні
 authStore.revalidateUser().then(() => {
-  app.mount('#app') // Монтируем приложение только после проверки
+  app.mount('#app') // Монтуємо додаток тільки після перевірки
 })

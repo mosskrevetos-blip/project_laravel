@@ -14,7 +14,7 @@
         <div v-else>
           <p>Данные о заказе не найдены. Возможно вы попали сюда напрямую.</p>
         </div>
-        <v-btn color="primary" @click="$router.push({ name: 'home' })">На главную</v-btn>
+        <v-btn color="primary" :to="{ name: 'home' }">На главную</v-btn>
       </v-card-text>
     </v-card>
   </v-container>

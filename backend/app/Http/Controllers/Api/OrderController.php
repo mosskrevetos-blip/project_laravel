@@ -16,30 +16,35 @@ class OrderController extends Controller
 {
     public function index()
     {
+        // Отримую поточного авторизованого користувача через Auth
         $user = Auth::user();
+        // Формую запит для вибірки замовлень з підвантаженням пов'язаних моделей:
+        // products (товари в замовленні),
+        // user (покупець),
+        // seller (продавець),
+        // deliveryMethod (спосіб доставки),
+        // paymentMethod (спосіб оплати).
         $query = Order::with(['products', 'user', 'seller', 'deliveryMethod', 'paymentMethod']);
 
-        // Админ и менеджер видят всё
+        // Адмін і менеджер бачать всі замовлення, відсортовані за датою (latest()).
         if ($user->hasRole('admin') || $user->hasRole('manager')) {
             return $query->latest()->get();
         }
 
-        // Остальные видят только заказы со своими товарами (как продавцы)
+        // Інші бачать лише замовлення зі своїми товарами (як продавці)
         return $query->where('seller_id', $user->id)->latest()->get();
     }
 
+    // Отримання одного замовлення з підвантаженням пов'язаних моделей
     public function show(Order $order)
     {
         return $order->load(['products', 'user', 'seller', 'deliveryMethod', 'paymentMethod']);
     }
 
-    /**
-     * Update order fields (for admin/manager via policy middleware).
-     * Allows updating status, payment_status, paid_at, tracking_number, carrier, estimated_delivery_date,
-     * delivery_method_id, payment_method_id.
-     */
+    // Оновлення замовлення (для адміна/менеджера через політику)
     public function update(Request $request, Order $order)
     {
+        // Валідація вхідних даних
         $validated = $request->validate([
             'status' => ['sometimes', 'string', Rule::in(['pending','processing','shipped','completed','cancelled'])],
             'payment_status' => ['sometimes', 'string', Rule::in(['pending','paid','failed'])],
@@ -49,26 +54,32 @@ class OrderController extends Controller
             'estimated_delivery_date' => 'nullable|date',
             'delivery_method_id' => 'nullable|exists:delivery_methods,id',
             'payment_method_id' => 'nullable|exists:payment_methods,id',
+            'comment' => 'nullable|string|max:1000',
         ]);
 
+        // Оновлення полів замовлення
         $order->fill($validated);
+        // Збереження змін у базі даних
         $order->save();
 
+        // Повернення оновленого замовлення з підвантаженими зв'язками
         return $order->load(['products', 'user', 'seller', 'deliveryMethod', 'paymentMethod']);
     }
 
+    // Видалення замовлення
     public function destroy(Order $order)
     {
+        // Видалення замовлення з бази даних
         $order->delete();
+        // Повернення відповіді без вмісту з кодом 204
         return response()->json(null, 204);
     }
 
-    /**
-     * Store public order(s) for a guest/buyer.
-     * If cart contains products from multiple sellers, separate orders are created per seller.
-     */
+    // Збереження публічного замовлення (для гостя/покупця)
+    // Якщо корзина містить товари від кількох продавців, створюються окремі замовлення для кожного продавця
     public function storePublic(Request $request)
     {
+        // Валідація вхідних даних
         $validated = $request->validate([
             // buyer
             'buyer_first_name' => 'required|string|max:120',
@@ -86,33 +97,39 @@ class OrderController extends Controller
             'payment_method_id' => 'nullable|exists:payment_methods,id',
             'city' => 'required|string|max:255',
             'address' => 'required|string|max:1000',
+            'comment' => 'nullable|string|max:1000',
             // cart (for one seller only)
             'cart' => 'required|array|min:1',
             'cart.*.product_id' => 'required|exists:products,id',
             'cart.*.quantity' => 'required|integer|min:1',
         ]);
 
-        // Find product objects and validate stock, also group by seller_id
+        // Обробка корзини та перевірка товарів
         $cart = $validated['cart'];
+        // Масив для збереження товарів замовлення
         $items = []; // [ {product, quantity, price}, ... ]
+        // Ідентифікатор продавця (щоб переконатися, що всі товари від одного продавця)
         $sellerId = null;
 
+        // Перевірка наявності товарів та їх кількості
         foreach ($cart as $item) {
+            // Знаходжу товар за product_id
             $product = Product::find($item['product_id']);
             if (!$product) {
                 return response()->json(['message' => "Product with id {$item['product_id']} not found."], 422);
             }
             if ($product->quantity < $item['quantity']) {
-                return response()->json(['message' => 'Товара ' . ($product->title ?? '') . ' не хватает на складе.'], 422);
+                return response()->json(['message' => 'Товара ' . ($product->title ?? '') . ' не вистачає на складі.'], 422);
             }
 
             // Ensure all products belong to the same seller
             if ($sellerId === null) {
                 $sellerId = $product->user_id; // set initial seller
             } elseif ($sellerId !== $product->user_id) {
-                return response()->json(['message' => 'Корзина должна содержать товары только одного продавца.'], 422);
+                return response()->json(['message' => 'Корзина повинна містити товари тільки одного продавця.'], 422);
             }
 
+            // Додаю товар до масиву замовлення
             $items[] = [
                 'product' => $product,
                 'quantity' => (int) $item['quantity'],
@@ -120,15 +137,17 @@ class OrderController extends Controller
             ];
         }
 
+        // Використання транзакції для створення замовлення та оновлення кількості товарів
         DB::beginTransaction();
 
         try {
-            // Calculate total for this order
+            // Обчислення загальної вартості замовлення
             $total = 0;
             foreach ($items as $it) {
                 $total += $it['price'] * $it['quantity'];
             }
 
+            // Створення замовлення
             $order = Order::create([
                 'customer_name' => $validated['buyer_first_name'] . ' ' . $validated['buyer_last_name'],
                 'customer_email' => $validated['buyer_email'],
@@ -149,6 +168,7 @@ class OrderController extends Controller
                 'payment_method_id' => $validated['payment_method_id'] ?? null,
                 'city' => $validated['city'],
                 'address' => $validated['address'],
+                'comment' => $validated['comment'] ?? null,
                 'payment_status' => 'pending', // default status
             ]);
 
@@ -170,7 +190,7 @@ class OrderController extends Controller
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Ошибка при создании заказа: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Помилка при створенні замовлення: ' . $e->getMessage()], 500);
         }
 
         return response()->json(['order' => $order->load(['products', 'seller', 'deliveryMethod', 'paymentMethod'])], 201);

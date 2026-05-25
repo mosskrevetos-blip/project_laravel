@@ -1,20 +1,7 @@
 <template>
   <v-container>
     <v-row>
-      <!-- Выбор продавца -->
-      <v-col cols="12" md="12" class="mb-4">
-        <v-select
-          v-model="selectedSellerId"
-          :items="availableSellers"
-          item-value="id"
-          item-text="name"
-          label="Выберите продавца"
-          outlined
-          dense
-        />
-      </v-col>
-
-      <!-- Форма для оформления заказа -->
+      <!-- Форма для оформлення замовлення -->
       <v-col cols="12" md="7">
         <checkout-form
           :delivery-methods="deliveryMethods"
@@ -23,70 +10,48 @@
         />
       </v-col>
 
-      <!-- Сводка по заказу -->
+      <!-- Підсумок замовлення -->
+      <!--{{ checkoutGroups }}-->
       <v-col cols="12" md="5">
-        <order-summary
-          :items="filteredCartItems"
-          :total-price="calculatedTotalPrice"
-          @update-quantity="onUpdateQuantity"
-          @remove-item="onRemoveItem"
-        />
+        <CartSidebar @update:groups="onGroupsUpdate"/>
       </v-col>
     </v-row>
   </v-container>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import apiClient from '@/api';
-import { useCartStore } from '@/stores/cartStore';
-import CheckoutForm from '@/components/CheckoutForm.vue';
-import OrderSummary from '@/components/OrderSummary.vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useCartStore } from '@/stores/cartStore';
+import { useAuthStore } from '@/stores/authStore';
+import CheckoutForm from '@/components/cart/CheckoutForm.vue';
+import CartSidebar from '@/components/cart/CartSidebar.vue';
+import apiClient from '@/api';
+
 
 const cart = useCartStore();
 const deliveryMethods = ref([]);
 const paymentMethods = ref([]);
 const router = useRouter();
-const selectedSellerId = ref(null); // ID выбранного продавца (по умолчанию ничего не выбрано)
 
-const availableSellers = computed(() => {
-  // Генерация списка доступных продавцов на основе товаров в корзине
-  const sellers = [];
-  cart.items.forEach((item) => {
-    if (!sellers.some((seller) => seller.id === item.seller_id)) {
-      sellers.push({
-        id: item.seller_id,
-        name: item.seller_name || `Продавец #${item.seller_id}`,
-      });
-    }
-  });
-  return sellers;
-});
+// Данні з дочернього компонента CartSidebar
+const checkoutGroups = ref([]);
 
-const filteredCartItems = computed(() => {
-  // Возврат отфильтрованных товаров только для выбранного продавца
-  return cart.getItemsBySeller(selectedSellerId.value);
-});
+// Функція для оновлення груп товарів з дочернього компонента
+function onGroupsUpdate(data) {
+  checkoutGroups.value = data;
+}
 
-const calculatedTotalPrice = computed(() => {
-  // Общая стоимость товаров выбранного продавца
-  return filteredCartItems.value.reduce((sum, item) => sum + item.price * item.quantity, 0);
-});
 
 onMounted(async () => {
   try {
     const [dResp, pResp] = await Promise.all([
-      apiClient.get('/delivery-methods'),
+      apiClient.get('/delivery-methods'), 
       apiClient.get('/payment-methods'),
     ]);
     deliveryMethods.value = dResp.data;
     paymentMethods.value = pResp.data;
 
-    // Автоматически выбрать первого продавца при загрузке страницы
-    if (availableSellers.value.length > 0) {
-      selectedSellerId.value = availableSellers.value[0].id;
-    }
   } catch (e) {
     console.error('Error loading delivery/payment methods', e);
     deliveryMethods.value = [];
@@ -95,9 +60,11 @@ onMounted(async () => {
 });
 
 async function onSubmit(formData) {
-  // Подготовка данных для оформления заказа
-  if (!selectedSellerId.value) {
-    alert('Выберите продавца для оформления заказа.');
+
+  const currentGroup = checkoutGroups.value[0];
+
+  if (!currentGroup || !currentGroup.items) {
+    alert('Кошик порожній або дані ще завантажуються');
     return;
   }
 
@@ -115,32 +82,37 @@ async function onSubmit(formData) {
     payment_method_id: formData.payment_method_id || null,
     city: formData.city,
     address: formData.address,
-    cart: filteredCartItems.value.map((item) => ({
+    comment: formData.comment || null,
+    // !! Товари з поточної групи продавця
+    cart: currentGroup.items.map((item) => ({
       product_id: item.product_id,
       quantity: item.quantity,
     })),
   };
 
   try {
+    //console.log(payload);
+    
     const resp = await apiClient.post('/orders/public', payload);
     const result = resp.data;
 
-    // Очистить товары выбранного продавца из корзины
-    filteredCartItems.value.forEach((item) => cart.removeItem(item.product_id));
+    //Видалити товари вибраного продавця з корзини
+    currentGroup.items.forEach((item) => cart.removeItem(item.product_id));
 
-    // Сохранить оформленные заказы и перенаправить
+    // Якщо користувач авторизований, також очистити кошик на сервері
+    const authStore = useAuthStore();
+    if (authStore.isAuthenticated) {
+      await cart.loadFromServer(); // Завантажити оновлений кошик
+    }
+
+    // Зберегти оформлені замовлення та перенаправити на сторінку подяки
     sessionStorage.setItem('last_created_orders', JSON.stringify(result.orders || result));
     router.push({ name: 'checkout.thankyou' });
+
   } catch (err) {
-    console.error('Ошибка при оформлении заказа', err);
-    alert(err.response?.data?.message || 'Ошибка при оформлении заказа');
+    console.error('Помилка при оформленні замовлення', err);
+    alert(err.response?.data?.message || 'Помилка при оформленні замовлення');
   }
 }
 
-function onUpdateQuantity({ product_id, quantity }) {
-  cart.updateQuantity(product_id, quantity);
-}
-function onRemoveItem(product_id) {
-  cart.removeItem(product_id);
-}
 </script>

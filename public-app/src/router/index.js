@@ -1,20 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
-import ResetPasswordView from '../views/ResetPasswordView.vue'
 import { useAuthStore } from '@/stores/authStore'
 
 const router = createRouter({
+  // Підключаємо маршрутизатор
   history: createWebHistory(import.meta.env.BASE_URL),
+  // Визначаємо маршрути
   routes: [
     {
       path: '/',
       name: 'home',
-      component: HomeView,
+      component: () => import('../views/HomeView.vue'),
     },
     {
       path: '/password-reset/:token', 
       name: 'password.reset',
-      component: ResetPasswordView,
+      component: () => import('../views/ResetPasswordView.vue'),
     },
     {
       path: '/about',
@@ -22,16 +22,16 @@ const router = createRouter({
       component: () => import('../views/AboutView.vue'),
     },
     {
-      path: '/product/:id',
+      path: '/product/:id(\\d+)-:slug?',
       name: 'product.show',
       component: () => import('../views/ProductPage.vue'),
-      props: true,
     },
-    // CHANGED: checkout routes
+    // маршрути оформлення замовлення
     {
       path: '/checkout',
       name: 'checkout',
       component: () => import('../views/CheckoutPage.vue'),
+      props: true,
     },
     {
       path: '/checkout/thank-you',
