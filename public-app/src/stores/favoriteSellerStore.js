@@ -108,6 +108,26 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         }
     }
 
+
+    // Синхронізувати локальні обрані продавці з сервером після авторизації
+    async function syncWithServer() {
+        const authStore = useAuthStore();
+
+        if (!authStore.isAuthenticated) {
+            return;
+        }
+
+        try {
+            await apiClient.post('/favorite-sellers/sync', {
+                seller_ids: sellerIds.value,
+            });
+
+            await loadFromServer();
+        } catch (error) {
+            console.error('Помилка синхронізації обраних продавців:', error);
+        }
+    }
+
     // Очистити обраних продавців
     function clear() {
         sellerIds.value = [];
@@ -126,5 +146,6 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         toggleFavoriteSeller,
         clear,
         loadFromServer,
+        syncWithServer,
     };
 });

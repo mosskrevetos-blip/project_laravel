@@ -106,6 +106,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/favorite-sellers', [FavoriteSellerController::class, 'index']);
     Route::post('/favorite-sellers', [FavoriteSellerController::class, 'store']);
     Route::delete('/favorite-sellers/{sellerId}', [FavoriteSellerController::class, 'destroy']);
+    Route::post('/favorite-sellers/sync', [FavoriteSellerController::class, 'sync']);
     Route::get('/favorite-sellers/check/{sellerId}', [FavoriteSellerController::class, 'check']);
 
     // процес присутності користувача (для відображення онлайн-статусу)

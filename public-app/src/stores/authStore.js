@@ -134,9 +134,9 @@ export const useAuthStore = defineStore('publicAuth', {
       const favoriteStore = useFavoriteStore();
       await favoriteStore.syncWithServer();
 
-      // Завантаження обраних продавців
+      // Синхронізація обраних продавців після входу
       const favoriteSellerStore = useFavoriteSellerStore();
-      await favoriteSellerStore.loadFromServer();
+      await favoriteSellerStore.syncWithServer();
 
       const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
       sessionStorage.removeItem('redirectAfterLogin');
@@ -170,9 +170,9 @@ export const useAuthStore = defineStore('publicAuth', {
       const favoriteStore = useFavoriteStore();
       await favoriteStore.syncWithServer();
 
-      // Завантаження обраних продавців після реєстрації
+      // Синхронізація обраних продавців після реєстрації
       const favoriteSellerStore = useFavoriteSellerStore();
-      await favoriteSellerStore.loadFromServer();
+      await favoriteSellerStore.syncWithServer();
 
       await this.finalizeAuthFlow();
     },

@@ -45,6 +45,36 @@ class FavoriteSellerController extends Controller
     }
 
     /**
+    * Синхронізувати список обраних продавців
+    * Приймає масив seller_ids і оновлює список обраного відповідно до нього
+    */
+    public function sync(Request $request)
+    {
+        $request->validate([
+            'seller_ids' => 'required|array',
+            'seller_ids.*' => 'exists:users,id',
+        ]);
+
+        $userId = Auth::id();
+
+        foreach ($request->seller_ids as $sellerId) {
+            // Не даём добавить самого себя
+            if ((int) $sellerId === (int) $userId) {
+                continue;
+            }
+
+            FavoriteSeller::firstOrCreate([
+                'user_id' => $userId,
+                'seller_id' => $sellerId,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Обраних продавців синхронізовано'
+        ]);
+    }
+
+    /**
      * Видалити продавця з обраного
      */
     public function destroy($sellerId)
