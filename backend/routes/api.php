@@ -11,9 +11,11 @@ use App\Http\Controllers\Api\AttributeController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\FavoriteController;
 use App\Http\Controllers\Api\FavoriteSellerController;
+use App\Http\Controllers\Api\FavoriteReportController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PresenceController;
+
 
 //==========================================================================
 // ПУБЛІЧНІ МАРШРУТИ (доступні всім)
@@ -101,6 +103,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/favorites/{productId}', [FavoriteController::class, 'destroy']);
     Route::post('/favorites/sync', [FavoriteController::class, 'sync']);
     Route::get('/favorites/check/{productId}', [FavoriteController::class, 'check']);
+
+    // Звіт по обраному для адмін-панелі
+    Route::get('/favorites/report', [FavoriteReportController::class, 'index']);
 
     // Обрані продавці
     Route::get('/favorite-sellers', [FavoriteSellerController::class, 'index']);

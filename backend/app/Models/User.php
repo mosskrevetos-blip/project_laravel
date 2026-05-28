@@ -109,4 +109,12 @@ class User extends Authenticatable
         // ISO 8601, например: 2026-04-11T10:48:02+00:00
         return $date->format(\DateTime::ATOM);
     }
+
+    /**
+    * Користувачі, які додали цього продавця в обране.
+    */
+    public function favoritedByUsersAsSeller(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'favorite_sellers', 'seller_id', 'user_id')->withTimestamps();
+    }
 }
