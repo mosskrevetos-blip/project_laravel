@@ -33,4 +33,10 @@ export const navItems = [
     // Этот пункт виден только админу и менеджеру
     requiredRoles: ['admin', 'manager'], 
   },
+  {
+    title: 'Обране',
+    icon: 'mdi-heart-outline',
+    to: { name: 'favorites' },
+    requiredRoles: [], 
+  },
 ];
