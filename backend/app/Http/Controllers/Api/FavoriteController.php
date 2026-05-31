@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Favorite;
-use App\Models\User;
+use App\Models\FavoriteProductEvent;
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-
 
 class FavoriteController extends Controller
 {
@@ -25,7 +25,6 @@ class FavoriteController extends Controller
 
     /**
      * Додати товар до обраного
-     * 
      */
     public function store(Request $request)
     {
@@ -45,7 +44,7 @@ class FavoriteController extends Controller
     }
 
     /**
-     * Видалити товар з обраного
+     * Видалити товар з обраного поточного користувача
      */
     public function destroy($productId)
     {
@@ -61,7 +60,71 @@ class FavoriteController extends Controller
     }
 
     /**
-     * Синхронізація обраного (для гостей після авторизації)
+     * Видалити товар з обраного конкретного користувача.
+     * Доступно лише адміну та менеджеру.
+     */
+    public function destroyForUser(User $user, Product $product)
+    {
+        $authUser = Auth::user();
+
+        if (!$authUser->hasRole('admin') && !$authUser->hasRole('manager')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $deleted = Favorite::where('user_id', $user->id)
+            ->where('product_id', $product->id)
+            ->delete();
+
+        if (!$deleted) {
+            return response()->json([
+                'message' => 'Товар не знайдено в обраному користувача'
+            ], 404);
+        }
+
+        FavoriteProductEvent::create([
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'event_type' => 'remove',
+            'source' => $authUser->hasRole('admin') ? 'admin_panel' : 'manager_panel',
+            'created_by' => $authUser->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Товар видалено з обраного користувача успішно.'
+        ]);
+    }
+
+    /**
+     * Повернути список подій по обраному для поточного користувача
+     */
+    public function events(Request $request)
+    {
+        $request->validate([
+            'since' => 'nullable|date',
+        ]);
+
+        $query = FavoriteProductEvent::query()
+            ->where('user_id', Auth::id())
+            ->orderBy('created_at');
+
+        if ($request->filled('since')) {
+            $query->where('created_at', '>', $request->input('since'));
+        }
+
+        $events = $query->get([
+            'id',
+            'product_id',
+            'event_type',
+            'source',
+            'created_at',
+        ]);
+
+        return response()->json($events);
+    }
+
+    /**
+     * Повна синхронізація обраного.
+     * localStorage вважається джерелом істини.
      */
     public function sync(Request $request)
     {
@@ -70,14 +133,15 @@ class FavoriteController extends Controller
             'product_ids.*' => 'exists:products,id',
         ]);
 
-        $userId = Auth::id();
+        $user = Auth::user();
 
-        foreach ($request->product_ids as $productId) {
-            Favorite::firstOrCreate([
-                'user_id' => $userId,
-                'product_id' => $productId,
-            ]);
-        }
+        $productIds = collect($request->product_ids)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $user->favoriteProducts()->sync($productIds);
 
         return response()->json(['message' => 'Обране синхронізовано']);
     }
@@ -92,25 +156,5 @@ class FavoriteController extends Controller
             ->exists();
 
         return response()->json(['is_favorite' => $isFavorite]);
-    }
-
-
-    /**
-     * Видалити товар з обраного конкретного користувача.
-     * Доступно лише адміну та менеджеру.
-     */
-    public function destroyForUser(User $user, Product $product)
-    {
-        $authUser = Auth::user();
-
-        if (!$authUser->hasRole('admin') && !$authUser->hasRole('manager')) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        $user->favoriteProducts()->detach($product->id);
-
-        return response()->json([
-            'message' => 'Товар видалено з обраного користувача успішно.'
-        ]);
     }
 }
