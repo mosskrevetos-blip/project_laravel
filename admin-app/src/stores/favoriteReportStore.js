@@ -33,5 +33,37 @@ export const useFavoriteReportStore = defineStore('favoriteReport', {
         this.loading = false;
       }
     },
+
+    async removeFavoriteProduct(productId) {
+        this.loading = true;
+        this.error = null;
+
+        try {
+            await apiClient.delete(`/favorites/${productId}`);
+            await this.fetchReport();
+        } catch (err) {
+            this.error = 'Помилка при видаленні товару з обраного';
+            console.error(err);
+            throw err;
+        } finally {
+            this.loading = false;
+        }
+        },
+
+        async removeFavoriteProductForUser(userId, productId) {
+        this.loading = true;
+        this.error = null;
+
+        try {
+            await apiClient.delete(`/favorites/users/${userId}/products/${productId}`);
+            await this.fetchReport();
+        } catch (err) {
+            this.error = 'Помилка при видаленні товару з обраного користувача';
+            console.error(err);
+            throw err;
+        } finally {
+            this.loading = false;
+        }
+    },
   },
 });

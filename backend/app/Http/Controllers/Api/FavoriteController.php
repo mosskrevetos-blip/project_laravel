@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Favorite;
+use App\Models\User;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+
 
 class FavoriteController extends Controller
 {
@@ -22,6 +25,7 @@ class FavoriteController extends Controller
 
     /**
      * Додати товар до обраного
+     * 
      */
     public function store(Request $request)
     {
@@ -88,5 +92,25 @@ class FavoriteController extends Controller
             ->exists();
 
         return response()->json(['is_favorite' => $isFavorite]);
+    }
+
+
+    /**
+     * Видалити товар з обраного конкретного користувача.
+     * Доступно лише адміну та менеджеру.
+     */
+    public function destroyForUser(User $user, Product $product)
+    {
+        $authUser = Auth::user();
+
+        if (!$authUser->hasRole('admin') && !$authUser->hasRole('manager')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $user->favoriteProducts()->detach($product->id);
+
+        return response()->json([
+            'message' => 'Товар видалено з обраного користувача успішно.'
+        ]);
     }
 }
