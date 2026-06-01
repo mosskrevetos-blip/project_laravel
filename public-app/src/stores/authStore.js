@@ -216,7 +216,6 @@ export const useAuthStore = defineStore('publicAuth', {
 
     // Метод для отримання даних поточного користувача (використовується після входу та для перевірки сесії)
     async getUser() {
-      if (this.user) return;
       try {
         const response = await apiClient.get('/user');
         this.user = response.data;

@@ -99,7 +99,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Обрані товари
     Route::get('/favorites', [FavoriteController::class, 'index']);
-    Route::get('/favorites/events', [FavoriteController::class, 'events']);
     Route::post('/favorites', [FavoriteController::class, 'store']);
     Route::delete('/favorites/{productId}', [FavoriteController::class, 'destroy']);
     Route::delete('/favorites/users/{user}/products/{product}', [FavoriteController::class, 'destroyForUser']);

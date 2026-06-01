@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Favorite;
-use App\Models\FavoriteProductEvent;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -12,7 +11,9 @@ use Illuminate\Support\Facades\Auth;
 
 class FavoriteController extends Controller
 {
-    /** Отримати список обраних товарів поточного користувача */
+    /**
+     * Отримати список обраних товарів поточного користувача
+     */
     public function index()
     {
         $favorites = Auth::user()
@@ -53,10 +54,14 @@ class FavoriteController extends Controller
             ->delete();
 
         if ($deleted) {
-            return response()->json(['message' => 'Товар видалено з обраного']);
+            return response()->json([
+                'message' => 'Товар видалено з обраного'
+            ]);
         }
 
-        return response()->json(['message' => 'Товар не знайдено в обраному'], 404);
+        return response()->json([
+            'message' => 'Товар не знайдено в обраному'
+        ], 404);
     }
 
     /**
@@ -81,50 +86,15 @@ class FavoriteController extends Controller
             ], 404);
         }
 
-        FavoriteProductEvent::create([
-            'user_id' => $user->id,
-            'product_id' => $product->id,
-            'event_type' => 'remove',
-            'source' => $authUser->hasRole('admin') ? 'admin_panel' : 'manager_panel',
-            'created_by' => $authUser->id,
-        ]);
-
         return response()->json([
             'message' => 'Товар видалено з обраного користувача успішно.'
         ]);
     }
 
     /**
-     * Повернути список подій по обраному для поточного користувача
-     */
-    public function events(Request $request)
-    {
-        $request->validate([
-            'since' => 'nullable|date',
-        ]);
-
-        $query = FavoriteProductEvent::query()
-            ->where('user_id', Auth::id())
-            ->orderBy('created_at');
-
-        if ($request->filled('since')) {
-            $query->where('created_at', '>', $request->input('since'));
-        }
-
-        $events = $query->get([
-            'id',
-            'product_id',
-            'event_type',
-            'source',
-            'created_at',
-        ]);
-
-        return response()->json($events);
-    }
-
-    /**
      * Повна синхронізація обраного.
-     * localStorage вважається джерелом істини.
+     * На вхід приходить підсумковий список product_ids,
+     * який має повністю замінити поточний server state користувача.
      */
     public function sync(Request $request)
     {
@@ -143,7 +113,9 @@ class FavoriteController extends Controller
 
         $user->favoriteProducts()->sync($productIds);
 
-        return response()->json(['message' => 'Обране синхронізовано']);
+        return response()->json([
+            'message' => 'Обране синхронізовано'
+        ]);
     }
 
     /**
@@ -155,6 +127,8 @@ class FavoriteController extends Controller
             ->where('product_id', $productId)
             ->exists();
 
-        return response()->json(['is_favorite' => $isFavorite]);
+        return response()->json([
+            'is_favorite' => $isFavorite
+        ]);
     }
 }

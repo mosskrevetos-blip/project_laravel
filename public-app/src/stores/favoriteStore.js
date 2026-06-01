@@ -1,21 +1,23 @@
-// public-app/src/stores/favoriteStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import apiClient from '@/api';
 import { useAuthStore } from '@/stores/authStore';
 
 const STORAGE_KEY = 'public_favorites_v1';
-const EVENTS_SYNC_KEY = 'public_favorites_events_last_sync_at';
 
 export const useFavoriteStore = defineStore('favorite', () => {
     const productIds = ref([]);
 
-    // Функція для відновлення стану з localStorage
+    /**
+     * Завантажити favorites з localStorage
+     * Використовується тільки для guest-режиму
+     */
     function load() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
+
             if (raw) {
-                productIds.value = JSON.parse(raw);
+                productIds.value = JSON.parse(raw).map(Number);
             } else {
                 productIds.value = [];
             }
@@ -24,7 +26,10 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    // Зберігає поточний стан в localStorage
+    /**
+     * Зберегти favorites у localStorage
+     * Використовується тільки для guest-режиму
+     */
     function persist() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(productIds.value));
@@ -33,10 +38,23 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    // Відновлює стан при ініціалізації
+    /**
+     * Повністю очистити guest localStorage
+     */
+    function clearLocalFavorites() {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    // Ініціалізуємо store з localStorage
     load();
 
-    // Завантаження обраного з сервера (для авторизованих)
+    /**
+     * Завантажити favorites з сервера для авторизованого користувача
+     */
     async function loadFromServer() {
         const authStore = useAuthStore();
 
@@ -46,51 +64,21 @@ export const useFavoriteStore = defineStore('favorite', () => {
 
         try {
             const response = await apiClient.get('/favorites');
-            productIds.value = response.data.map(product => product.id);
-            persist();
+            productIds.value = (response.data || []).map(product => Number(product.id));
         } catch (error) {
             console.error('Помилка завантаження обраного з сервера:', error);
         }
     }
 
-    // Застосувати серверні події до localStorage
-    async function applyServerEventsToLocal() {
-        const authStore = useAuthStore();
-
-        if (!authStore.isAuthenticated) {
-            return;
-        }
-
-        try {
-            const since = localStorage.getItem(EVENTS_SYNC_KEY);
-            const params = since ? { since } : {};
-
-            const response = await apiClient.get('/favorites/events', { params });
-            const events = response.data || [];
-
-            console.log('favorites events params:', params);
-            console.log('favorites events response:', events);
-
-            for (const event of events) {
-                if (event.event_type === 'remove') {
-                    const pid = Number(event.product_id);
-                    productIds.value = productIds.value.filter(id => id !== pid);
-                }
-            }
-
-            persist();
-
-            // Оновлюємо курсор тільки якщо реально отримали події
-            if (events.length > 0) {
-                const lastCreatedAt = events[events.length - 1].created_at;
-                localStorage.setItem(EVENTS_SYNC_KEY, lastCreatedAt);
-            }
-        } catch (error) {
-            console.error('Помилка застосування серверних подій до localStorage:', error);
-        }
-    }
-
-    // Синхронізація обраного при авторизації
+    /**
+     * Синхронізація при логіні:
+     * 1. беремо guest favorites з localStorage
+     * 2. беремо current server favorites
+     * 3. merge без дублікатів
+     * 4. відправляємо merged список на сервер
+     * 5. знову читаємо server state
+     * 6. очищаємо localStorage, бо після логіну джерело істини — сервер
+     */
     async function syncWithServer() {
         const authStore = useAuthStore();
 
@@ -99,36 +87,47 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
 
         try {
-            // Спочатку застосовуємо серверні події видалення до localStorage
-            await applyServerEventsToLocal();
+            // 1. Те, що було у гостя
+            const localIds = [...productIds.value].map(Number);
 
-            // Потім localStorage є джерелом істини і відправляється на сервер
+            // 2. Те, що вже є на сервері
+            const response = await apiClient.get('/favorites');
+            const serverIds = (response.data || []).map(product => Number(product.id));
+
+            // 3. Об'єднуємо без дублікатів
+            const mergedIds = [...new Set([...serverIds, ...localIds])];
+
+            // 4. Записуємо merged state на сервер
             await apiClient.post('/favorites/sync', {
-                product_ids: productIds.value,
+                product_ids: mergedIds,
             });
 
-            // Після синхронізації завантажуємо оновлений список з сервера
+            // 5. Оновлюємо store з сервера
             await loadFromServer();
-            persist();
+
+            // 6. Очищаємо guest localStorage
+            clearLocalFavorites();
         } catch (error) {
             console.error('Помилка синхронізації обраного:', error);
         }
     }
 
-    // Перевірити, чи товар в обраному
+    /**
+     * Перевірити, чи товар у favorites
+     */
     function isFavorite(productId) {
         return productIds.value.includes(Number(productId));
     }
 
-    // Додати товар в обране
+    /**
+     * Додати товар в favorites
+     */
     async function addFavorite(productId) {
         const authStore = useAuthStore();
         const pid = Number(productId);
 
-        // Якщо вже в обраному — нічого не робимо
         if (isFavorite(pid)) return;
 
-        // Якщо авторизований — працюємо з сервером
         if (authStore.isAuthenticated) {
             try {
                 await apiClient.post('/favorites', { product_id: pid });
@@ -138,18 +137,18 @@ export const useFavoriteStore = defineStore('favorite', () => {
                 throw error;
             }
         } else {
-            // Гість — працюємо з localStorage
             productIds.value.push(pid);
             persist();
         }
     }
 
-    // Видалити товар з обраного
+    /**
+     * Видалити товар з favorites
+     */
     async function removeFavorite(productId) {
         const authStore = useAuthStore();
         const pid = Number(productId);
 
-        // Якщо авторизований — працюємо з сервером
         if (authStore.isAuthenticated) {
             try {
                 await apiClient.delete(`/favorites/${pid}`);
@@ -159,13 +158,14 @@ export const useFavoriteStore = defineStore('favorite', () => {
                 throw error;
             }
         } else {
-            // Гість — працюємо з localStorage
             productIds.value = productIds.value.filter(id => id !== pid);
             persist();
         }
     }
 
-    // Переключити стан обраного (додати/видалити)
+    /**
+     * Переключити стан favorites
+     */
     async function toggleFavorite(productId) {
         if (isFavorite(productId)) {
             await removeFavorite(productId);
@@ -174,13 +174,14 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    // Очистити обране
+    /**
+     * Очистити favorites в guest-режимі
+     */
     function clear() {
         productIds.value = [];
         persist();
     }
 
-    // Обчислювана властивість: кількість товарів в обраному
     const totalFavorites = computed(() => productIds.value.length);
 
     return {
@@ -191,8 +192,8 @@ export const useFavoriteStore = defineStore('favorite', () => {
         removeFavorite,
         toggleFavorite,
         clear,
+        clearLocalFavorites,
         loadFromServer,
         syncWithServer,
-        applyServerEventsToLocal,
     };
 });
