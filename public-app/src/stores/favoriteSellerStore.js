@@ -1,4 +1,3 @@
-// public-app/src/stores/favoriteSellerStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import apiClient from '@/api';
@@ -7,20 +6,23 @@ import { useAuthStore } from '@/stores/authStore';
 const STORAGE_KEY = 'public_favorite_sellers_v1';
 
 export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
-  
     const sellerIds = ref([]);
 
-    // Функція для відновлення стану з localStorage
+    // Завантажити favorite sellers з localStorage тільки для guest
     function load() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) sellerIds.value = JSON.parse(raw);
+            if (raw) {
+                sellerIds.value = JSON.parse(raw).map(Number);
+            } else {
+                sellerIds.value = [];
+            }
         } catch (e) {
             sellerIds.value = [];
         }
     }
 
-    // Зберігає поточний стан в localStorage
+    // Зберегти favorite sellers в localStorage тільки для guest
     function persist() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(sellerIds.value));
@@ -29,21 +31,29 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         }
     }
 
-    // Відновлює стан при ініціалізації
+    // Очистити guest localStorage
+    function clearLocalFavoriteSellers() {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    // Ініціалізація зі сховища
     load();
 
-    // Завантаження обраних продавців з сервера
+    // Завантаження обраних продавців із сервера
     async function loadFromServer() {
         const authStore = useAuthStore();
-        
+
         if (!authStore.isAuthenticated) {
             return;
         }
 
         try {
             const response = await apiClient.get('/favorite-sellers');
-            sellerIds.value = response.data.map(seller => seller.id);
-            persist();
+            sellerIds.value = (response.data || []).map(seller => Number(seller.id));
         } catch (error) {
             console.error('Помилка завантаження обраних продавців з сервера:', error);
         }
@@ -59,10 +69,8 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         const authStore = useAuthStore();
         const sid = Number(sellerId);
 
-        // Якщо вже в обраному — нічого не робимо
         if (isFavoriteSeller(sid)) return;
 
-        // Якщо авторизований — працюємо з сервером
         if (authStore.isAuthenticated) {
             try {
                 await apiClient.post('/favorite-sellers', { seller_id: sid });
@@ -72,7 +80,6 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
                 throw error;
             }
         } else {
-            // Гість — працюємо з localStorage
             sellerIds.value.push(sid);
             persist();
         }
@@ -83,7 +90,6 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         const authStore = useAuthStore();
         const sid = Number(sellerId);
 
-        // Якщо авторизований — працюємо з сервером
         if (authStore.isAuthenticated) {
             try {
                 await apiClient.delete(`/favorite-sellers/${sid}`);
@@ -93,7 +99,6 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
                 throw error;
             }
         } else {
-            // Гість — працюємо з localStorage
             sellerIds.value = sellerIds.value.filter(id => id !== sid);
             persist();
         }
@@ -108,8 +113,7 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         }
     }
 
-
-    // Синхронізувати локальні обрані продавці з сервером після авторизації
+    // Синхронізація guest localStorage -> сервер при логіні/реєстрації
     async function syncWithServer() {
         const authStore = useAuthStore();
 
@@ -118,23 +122,37 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         }
 
         try {
+            // 1. Беремо guest sellers
+            const localIds = [...sellerIds.value].map(Number);
+
+            // 2. Беремо server sellers
+            const response = await apiClient.get('/favorite-sellers');
+            const serverIds = (response.data || []).map(seller => Number(seller.id));
+
+            // 3. Merge без дублікатів
+            const mergedIds = [...new Set([...serverIds, ...localIds])];
+
+            // 4. Синхронізуємо на сервер
             await apiClient.post('/favorite-sellers/sync', {
-                seller_ids: sellerIds.value,
+                seller_ids: mergedIds,
             });
 
+            // 5. Завантажуємо актуальний server state
             await loadFromServer();
+
+            // 6. Після логіну guest localStorage очищаємо
+            clearLocalFavoriteSellers();
         } catch (error) {
             console.error('Помилка синхронізації обраних продавців:', error);
         }
     }
 
-    // Очистити обраних продавців
+    // Очистити store для guest режиму
     function clear() {
         sellerIds.value = [];
         persist();
     }
 
-    // Обчислювана властивість: кількість обраних продавців
     const totalFavoriteSellers = computed(() => sellerIds.value.length);
 
     return {
@@ -145,6 +163,7 @@ export const useFavoriteSellerStore = defineStore('favoriteSeller', () => {
         removeFavoriteSeller,
         toggleFavoriteSeller,
         clear,
+        clearLocalFavoriteSellers,
         loadFromServer,
         syncWithServer,
     };

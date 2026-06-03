@@ -332,6 +332,7 @@ import LoginDialog from '@/components/LoginDialog.vue';
 import RegisterDialog from '@/components/RegisterDialog.vue';
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue';
 import { useFavoriteStore } from '@/stores/favoriteStore';
+import { useFavoriteSellerStore } from '@/stores/favoriteSellerStore';
 import apiClient from '@/api';
 
 import ChatDrawer from '@/components/chat/ChatDrawer.vue';
@@ -398,6 +399,7 @@ const userMenuItems = ref([
   { title: 'Адмін-панель', icon: 'mdi-shield-crown', href: adminPanelUrl, requiredRoles: ['admin','manager'] },
 ]);
 
+const favoriteSellerStore = useFavoriteSellerStore();
 
 let presenceTimer = null;
 
@@ -500,6 +502,13 @@ onMounted(async () => {
   // ✅ ВАЖНО: подтянуть текущего пользователя (иначе presenceTimer не стартует)
   try {
     await authStore.getUser();
+
+    // Якщо користувач авторизований — favorites мають братися з сервера
+    if (authStore.isAuthenticated) {
+      await favoriteStore.loadFromServer();
+      await favoriteSellerStore.loadFromServer();
+    }
+
   } catch (e) {
     // ignore (если не залогинен)
   }

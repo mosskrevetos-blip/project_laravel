@@ -112,6 +112,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/favorite-sellers', [FavoriteSellerController::class, 'index']);
     Route::post('/favorite-sellers', [FavoriteSellerController::class, 'store']);
     Route::delete('/favorite-sellers/{sellerId}', [FavoriteSellerController::class, 'destroy']);
+    Route::delete('/favorite-sellers/users/{user}/sellers/{seller}', [FavoriteSellerController::class, 'destroyForUser']);
     Route::post('/favorite-sellers/sync', [FavoriteSellerController::class, 'sync']);
     Route::get('/favorite-sellers/check/{sellerId}', [FavoriteSellerController::class, 'check']);
 

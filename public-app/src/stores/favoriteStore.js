@@ -8,14 +8,10 @@ const STORAGE_KEY = 'public_favorites_v1';
 export const useFavoriteStore = defineStore('favorite', () => {
     const productIds = ref([]);
 
-    /**
-     * Завантажити favorites з localStorage
-     * Використовується тільки для guest-режиму
-     */
+    // Завантаження favorites з localStorage тільки для guest
     function load() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
-
             if (raw) {
                 productIds.value = JSON.parse(raw).map(Number);
             } else {
@@ -26,10 +22,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Зберегти favorites у localStorage
-     * Використовується тільки для guest-режиму
-     */
+    // Збереження в localStorage тільки для guest
     function persist() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(productIds.value));
@@ -38,9 +31,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Повністю очистити guest localStorage
-     */
+    // Очистка guest localStorage
     function clearLocalFavorites() {
         try {
             localStorage.removeItem(STORAGE_KEY);
@@ -49,12 +40,10 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    // Ініціалізуємо store з localStorage
+    // При старті стору завантажуємо guest localStorage
     load();
 
-    /**
-     * Завантажити favorites з сервера для авторизованого користувача
-     */
+    // Завантаження favorites з сервера для авторизованого користувача
     async function loadFromServer() {
         const authStore = useAuthStore();
 
@@ -70,15 +59,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Синхронізація при логіні:
-     * 1. беремо guest favorites з localStorage
-     * 2. беремо current server favorites
-     * 3. merge без дублікатів
-     * 4. відправляємо merged список на сервер
-     * 5. знову читаємо server state
-     * 6. очищаємо localStorage, бо після логіну джерело істини — сервер
-     */
+    // Синхронізація guest localStorage -> сервер при логіні/реєстрації
     async function syncWithServer() {
         const authStore = useAuthStore();
 
@@ -87,14 +68,14 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
 
         try {
-            // 1. Те, що було у гостя
+            // 1. Беремо guest favorites
             const localIds = [...productIds.value].map(Number);
 
-            // 2. Те, що вже є на сервері
+            // 2. Беремо server favorites
             const response = await apiClient.get('/favorites');
             const serverIds = (response.data || []).map(product => Number(product.id));
 
-            // 3. Об'єднуємо без дублікатів
+            // 3. Merge без дублікатів
             const mergedIds = [...new Set([...serverIds, ...localIds])];
 
             // 4. Записуємо merged state на сервер
@@ -102,7 +83,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
                 product_ids: mergedIds,
             });
 
-            // 5. Оновлюємо store з сервера
+            // 5. Після sync завантажуємо актуальний server state
             await loadFromServer();
 
             // 6. Очищаємо guest localStorage
@@ -112,16 +93,10 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Перевірити, чи товар у favorites
-     */
     function isFavorite(productId) {
         return productIds.value.includes(Number(productId));
     }
 
-    /**
-     * Додати товар в favorites
-     */
     async function addFavorite(productId) {
         const authStore = useAuthStore();
         const pid = Number(productId);
@@ -142,9 +117,6 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Видалити товар з favorites
-     */
     async function removeFavorite(productId) {
         const authStore = useAuthStore();
         const pid = Number(productId);
@@ -163,9 +135,6 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Переключити стан favorites
-     */
     async function toggleFavorite(productId) {
         if (isFavorite(productId)) {
             await removeFavorite(productId);
@@ -174,9 +143,6 @@ export const useFavoriteStore = defineStore('favorite', () => {
         }
     }
 
-    /**
-     * Очистити favorites в guest-режимі
-     */
     function clear() {
         productIds.value = [];
         persist();

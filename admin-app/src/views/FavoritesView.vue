@@ -62,7 +62,7 @@
           <v-card-title>Обрані товари користувачами</v-card-title>
           <v-card-text>
             <div
-              v-for="userBlock in favoriteReportStore.favoriteProductsByUser"
+              v-for="userBlock in favoriteProductsByUserSorted"
               :key="`products-${userBlock.id}`"
               class="mb-6"
             >
@@ -84,32 +84,50 @@
 
               <v-table density="comfortable" class="mb-2">
                 <thead>
-                  <tr>
+                    <tr>
+                    <th>Фото</th>
                     <th>ID</th>
                     <th>Назва</th>
                     <th>Категорія</th>
                     <th>Продавець</th>
                     <th>Ціна</th>
                     <th>Дія</th>
-                  </tr>
+                    </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!userBlock.favorite_products || userBlock.favorite_products.length === 0">
-                    <td colspan="6" class="text-medium-emphasis">Немає обраних товарів</td>
-                  </tr>
-                  <tr
+                    <tr v-if="!userBlock.favorite_products || userBlock.favorite_products.length === 0">
+                    <td colspan="7" class="text-medium-emphasis">Немає обраних товарів</td>
+                    </tr>
+                    <tr
                     v-for="product in userBlock.favorite_products"
                     :key="`favorite-product-${userBlock.id}-${product.id}`"
-                  >
+                    >
+                    <td>
+                        <v-img
+                        v-if="product.image_url?.[0]"
+                        :src="getProductThumbnailUrl(product)"
+                        width="56"
+                        height="56"
+                        cover
+                        class="rounded"
+                        />
+                        <div
+                        v-else
+                        class="d-flex align-center justify-center rounded bg-grey-lighten-3 text-medium-emphasis"
+                        style="width: 56px; height: 56px;"
+                        >
+                        —
+                        </div>
+                    </td>
                     <td>{{ product.id }}</td>
                     <td>
                         <a
-                            :href="getProductPublicUrl(product)"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="text-decoration-none"
+                        :href="getProductPublicUrl(product)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-decoration-none"
                         >
-                            {{ product.title }}
+                        {{ product.title }}
                         </a>
                     </td>
                     <td>{{ product.category?.title || '—' }}</td>
@@ -125,7 +143,7 @@
                         <v-icon>mdi-delete</v-icon>
                         </v-btn>
                     </td>
-                  </tr>
+                    </tr>
                 </tbody>
               </v-table>
 
@@ -143,7 +161,7 @@
           <v-card-title>Обрані продавці користувачами</v-card-title>
           <v-card-text>
             <div
-              v-for="userBlock in favoriteReportStore.favoriteSellersByUser"
+              v-for="userBlock in favoriteSellersByUserSorted"
               :key="`sellers-${userBlock.id}`"
               class="mb-6"
             >
@@ -215,21 +233,6 @@
                 :key="`my-products-${userBlock.id}`"
                 class="mb-6"
             >
-                <div class="mb-2">
-                <strong>{{ userBlock.name }}</strong>
-                <span class="text-medium-emphasis"> ({{ userBlock.email }})</span>
-                </div>
-
-                <div v-if="canSeeUserRoles() && userBlock.roles?.length" class="mb-2">
-                <v-chip
-                    v-for="role in userBlock.roles"
-                    :key="`my-products-role-${userBlock.id}-${role.id}`"
-                    class="mr-1 mb-1"
-                    size="small"
-                >
-                    {{ role.name }}
-                </v-chip>
-                </div>
 
                 <v-table density="comfortable" class="mb-2">
                 <thead>
@@ -310,53 +313,34 @@
               :key="`my-sellers-${userBlock.id}`"
               class="mb-6"
             >
-              <div class="mb-2">
-                <strong>{{ userBlock.name }}</strong>
-                <span class="text-medium-emphasis"> ({{ userBlock.email }})</span>
-              </div>
-
-              <div v-if="canSeeUserRoles() && userBlock.roles?.length" class="mb-2">
-                <v-chip
-                  v-for="role in userBlock.roles"
-                  :key="`my-sellers-role-${userBlock.id}-${role.id}`"
-                  class="mr-1 mb-1"
-                  size="small"
-                >
-                  {{ role.name }}
-                </v-chip>
-              </div>
 
               <v-table density="comfortable" class="mb-2">
                 <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Ім’я</th>
-                    <th>Email</th>
-                    <th>Ролі</th>
-                  </tr>
+                    <tr>
+                        <th>Ім’я</th>
+                        <th>Дія</th>
+                    </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!userBlock.favorite_sellers || userBlock.favorite_sellers.length === 0">
-                    <td colspan="4" class="text-medium-emphasis">Немає обраних продавців</td>
-                  </tr>
-                  <tr
-                    v-for="seller in userBlock.favorite_sellers"
-                    :key="`my-favorite-seller-${userBlock.id}-${seller.id}`"
-                  >
-                    <td>{{ seller.id }}</td>
-                    <td>{{ seller.name }}</td>
-                    <td>{{ seller.email }}</td>
-                    <td>
-                      <v-chip
-                        v-for="role in seller.roles || []"
-                        :key="`my-seller-role-${seller.id}-${role.id}`"
-                        class="mr-1 mb-1"
-                        size="x-small"
-                      >
-                        {{ role.name }}
-                      </v-chip>
-                    </td>
-                  </tr>
+                    <tr v-if="!userBlock.favorite_sellers || userBlock.favorite_sellers.length === 0">
+                        <td colspan="2" class="text-medium-emphasis">Немає обраних продавців</td>
+                    </tr>
+                    <tr
+                        v-for="seller in userBlock.favorite_sellers"
+                        :key="`favorite-seller-${userBlock.id}-${seller.id}`"
+                    >
+                        <td>{{ seller.name }}</td>
+                        <td>
+                        <v-btn
+                            icon
+                            variant="text"
+                            color="error"
+                            @click="openDeleteSellerDialog(userBlock.id, seller.id)"
+                        >
+                            <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                        </td>
+                    </tr>
                 </tbody>
               </v-table>
             </div>
@@ -369,55 +353,50 @@
       <!-- ========================================================= -->
       <v-window-item value="favorited-my-products">
         <v-card elevation="2">
-          <v-card-title>Ваші товари, обрані іншими</v-card-title>
-          <v-card-text>
+            <v-card-title>Ваші товари, обрані іншими</v-card-title>
+            <v-card-text>
             <div
-              v-for="item in favoriteReportStore.favoritedMyProducts"
-              :key="`my-product-favorites-${item.product.id}`"
-              class="mb-6"
+                v-for="item in favoriteReportStore.favoritedMyProducts.filter(item => item.users && item.users.length > 0)"
+                :key="`my-product-favorites-${item.product.id}`"
+                class="mb-6"
             >
-              <div class="mb-2">
-                <strong>{{ item.product.title }}</strong>
-                <span class="text-medium-emphasis"> (ID: {{ item.product.id }})</span>
-              </div>
+                <div class="mb-2">
+                <a
+                    :href="getProductPublicUrl(item.product)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-decoration-none font-weight-bold"
+                >
+                    {{ item.product.title }}
+                </a>
+                </div>
 
-              <v-table density="comfortable" class="mb-2">
+                <v-table density="comfortable" class="mb-2">
                 <thead>
-                  <tr>
-                    <th>ID</th>
+                    <tr>
                     <th>Ім’я</th>
-                    <th>Email</th>
-                    <th>Ролі</th>
-                  </tr>
+                    </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!item.users || item.users.length === 0">
-                    <td colspan="4" class="text-medium-emphasis">Ніхто ще не додав цей товар в обране</td>
-                  </tr>
-                  <tr
+                    <tr
                     v-for="u in item.users"
                     :key="`product-favorited-user-${item.product.id}-${u.id}`"
-                  >
-                    <td>{{ u.id }}</td>
+                    >
                     <td>{{ u.name }}</td>
-                    <td>{{ u.email }}</td>
-                    <td>
-                      <v-chip
-                        v-for="role in u.roles || []"
-                        :key="`favorited-user-role-${u.id}-${role.id}`"
-                        class="mr-1 mb-1"
-                        size="x-small"
-                      >
-                        {{ role.name }}
-                      </v-chip>
-                    </td>
-                  </tr>
+                    </tr>
                 </tbody>
-              </v-table>
+                </v-table>
 
-              <v-divider />
+                <v-divider />
             </div>
-          </v-card-text>
+
+            <div
+                v-if="favoriteReportStore.favoritedMyProducts.filter(item => item.users && item.users.length > 0).length === 0"
+                class="text-medium-emphasis"
+            >
+                Ніхто ще не додав ваші товари в обране
+            </div>
+            </v-card-text>
         </v-card>
       </v-window-item>
 
@@ -426,42 +405,27 @@
       <!-- ========================================================= -->
       <v-window-item value="favorited-me-as-seller">
         <v-card elevation="2">
-          <v-card-title>Ви, обрані іншими</v-card-title>
-          <v-card-text>
+            <v-card-title>Ви, обрані іншими</v-card-title>
+            <v-card-text>
             <v-table density="comfortable">
-              <thead>
+                <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Ім’я</th>
-                  <th>Email</th>
-                  <th>Ролі</th>
+                    <th>Ім’я</th>
                 </tr>
-              </thead>
-              <tbody>
+                </thead>
+                <tbody>
                 <tr v-if="favoriteReportStore.usersWhoFavoritedMeAsSeller.length === 0">
-                  <td colspan="4" class="text-medium-emphasis">Ніхто ще не додав вас в обране як продавця</td>
+                    <td class="text-medium-emphasis">Ніхто ще не додав вас в обране як продавця</td>
                 </tr>
                 <tr
-                  v-for="u in favoriteReportStore.usersWhoFavoritedMeAsSeller"
-                  :key="`favorited-me-as-seller-${u.id}`"
+                    v-for="u in favoriteReportStore.usersWhoFavoritedMeAsSeller"
+                    :key="`favorited-me-as-seller-${u.id}`"
                 >
-                  <td>{{ u.id }}</td>
-                  <td>{{ u.name }}</td>
-                  <td>{{ u.email }}</td>
-                  <td>
-                    <v-chip
-                      v-for="role in u.roles || []"
-                      :key="`favorited-me-role-${u.id}-${role.id}`"
-                      class="mr-1 mb-1"
-                      size="x-small"
-                    >
-                      {{ role.name }}
-                    </v-chip>
-                  </td>
+                    <td>{{ u.name }}</td>
                 </tr>
-              </tbody>
+                </tbody>
             </v-table>
-          </v-card-text>
+            </v-card-text>
         </v-card>
       </v-window-item>
     </v-window>
@@ -480,6 +444,26 @@
                 Скасувати
             </v-btn>
             <v-btn color="error" @click="confirmDeleteFavoriteProduct">
+                Видалити
+            </v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteSellerDialog" max-width="420">
+        <v-card>
+            <v-card-title class="text-h6">
+            Підтвердження
+            </v-card-title>
+            <v-card-text>
+            Ви дійсно бажаєте видалити цього продавця з обраного?
+            </v-card-text>
+            <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="closeDeleteSellerDialog">
+                Скасувати
+            </v-btn>
+            <v-btn color="error" @click="confirmDeleteFavoriteSeller">
                 Видалити
             </v-btn>
             </v-card-actions>
@@ -596,5 +580,73 @@ async function confirmDeleteFavoriteProduct() {
     console.error('Помилка при видаленні товару з обраного:', error);
   }
 }
+
+/* Видалення продавця з обраного */
+const deleteSellerDialog = ref(false);
+const sellerToDelete = ref({
+  userId: null,
+  sellerId: null,
+});
+
+function openDeleteSellerDialog(userId, sellerId) {
+  sellerToDelete.value = { userId, sellerId };
+  deleteSellerDialog.value = true;
+}
+
+function closeDeleteSellerDialog() {
+  deleteSellerDialog.value = false;
+  sellerToDelete.value = { userId: null, sellerId: null };
+}
+
+async function confirmDeleteFavoriteSeller() {
+  try {
+    if (isAdminOrManager.value) {
+      await favoriteReportStore.removeFavoriteSellerForUser(
+        sellerToDelete.value.userId,
+        sellerToDelete.value.sellerId
+      );
+    } else {
+      await favoriteReportStore.removeFavoriteSeller(
+        sellerToDelete.value.sellerId
+      );
+    }
+
+    closeDeleteSellerDialog();
+  } catch (error) {
+    console.error('Помилка при видаленні продавця з обраного:', error);
+  }
+}
+
+// Сортування користувачыв за кількістю обраних товарів/продавців для адміна та менеджера
+const favoriteProductsByUserSorted = computed(() => {
+  const users = [...favoriteReportStore.favoriteProductsByUser];
+
+  return users.sort((a, b) => {
+    const aCount = a.favorite_products?.length || 0;
+    const bCount = b.favorite_products?.length || 0;
+
+    // Сначала пользователи, у которых есть товары
+    if (aCount > 0 && bCount === 0) return -1;
+    if (aCount === 0 && bCount > 0) return 1;
+
+    return 0;
+  });
+});
+
+// Сортування користувачыв за кількістю обраних продавців для адміна та менеджера
+const favoriteSellersByUserSorted = computed(() => {
+  const users = [...favoriteReportStore.favoriteSellersByUser];
+
+  return users.sort((a, b) => {
+    const aCount = a.favorite_sellers?.length || 0;
+    const bCount = b.favorite_sellers?.length || 0;
+
+    // Сначала пользователи, у которых есть избранные продавці
+    if (aCount > 0 && bCount === 0) return -1;
+    if (aCount === 0 && bCount > 0) return 1;
+
+    return 0;
+  });
+});
 
 </script>

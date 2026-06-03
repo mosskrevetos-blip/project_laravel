@@ -73,10 +73,34 @@
                       <div v-else-if="isItemTemporarilyUnavailable(item)">
                         <v-icon color="white" size="small" class="me-2">mdi-alert-circle</v-icon>
                         <span class="text-caption white--text font-weight-bold me-2">Товар тимчасово недоступний</span>
+
+                        <v-btn 
+                          icon 
+                          variant="outlined" 
+                          size="small" 
+                          color="white" 
+                          class="yellow-border ms-2"
+                          @click.stop="removeItem(item.product_id)" 
+                          title="Видалити з кошика"
+                        >
+                          <v-icon size="small" color="yellow">mdi-delete</v-icon>
+                        </v-btn>
                       </div>
                       <div v-else-if="isItemOutOfStock(item)">
                         <v-icon color="white" size="small" class="me-2">mdi-alert-circle</v-icon>
                         <span class="text-caption white--text font-weight-bold me-2">Товар закінчився</span>
+
+                        <v-btn 
+                          icon 
+                          variant="outlined" 
+                          size="small" 
+                          color="white" 
+                          class="yellow-border ms-2"
+                          @click.stop="removeItem(item.product_id)" 
+                          title="Видалити з кошика"
+                        >
+                          <v-icon size="small" color="yellow">mdi-delete</v-icon>
+                        </v-btn>
                       </div>
                     </div>
                   </div>
