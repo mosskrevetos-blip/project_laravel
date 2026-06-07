@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\FavoriteReportController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PresenceController;
+use App\Http\Controllers\Api\SearchController;
 
 
 //==========================================================================
@@ -44,6 +45,10 @@ Route::get('/categories/{category}', [CategoryController::class, 'show'])->middl
 // --- Категорії ---
 Route::get('/categories', [CategoryController::class, 'index']);
 Route::get('/categories/{category}', [CategoryController::class, 'show'])->middleware('can:view,category');
+
+// Пошук товарів
+Route::get('/search/products', [SearchController::class, 'products']);
+Route::get('/search/suggestions', [SearchController::class, 'suggestions']);
 
 
 //==========================================================================
@@ -128,6 +133,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
     Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
     Route::post('/conversations/{conversation}/read', [MessageController::class, 'markRead']);
+
+    // Пошук та історія пошуку
+    Route::get('/search/history', [SearchController::class, 'history']);
+    Route::post('/search/history', [SearchController::class, 'storeHistory']);
+    Route::post('/search/history/sync', [SearchController::class, 'syncHistory']);
 
 });
 

@@ -117,4 +117,10 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(User::class, 'favorite_sellers', 'seller_id', 'user_id')->withTimestamps();
     }
+
+    // Зв'язок з історією пошуку
+    public function searchHistories(): HasMany
+    {
+        return $this->hasMany(SearchHistory::class);
+    }
 }

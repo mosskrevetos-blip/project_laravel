@@ -112,34 +112,45 @@
 
     <!-- Основна шапка і вміст -->
     <template v-if="route.name !== 'checkout'">
-      <v-app-bar app :color="isDark ? 'black' : 'white'" flat class="border-b">
-        <v-container class="d-flex align-center pa-0">
-          <v-app-bar-nav-icon variant="text" @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
-          <!-- Посилання на головну сторінку -->
-          <router-link
-              :to="{ name: 'home' }"
-              class="no-decoration "
-            ><v-app-bar-title class="font-weight-bold pr-4">E-Shop</v-app-bar-title>
-          </router-link>
+      <v-app-bar
+        app
+        :color="isDark ? 'black' : 'white'"
+        flat
+        class="border-b main-header-bar"
+        height="120"
+      >
+        <v-container class="pa-0 py-3 d-flex flex-column justify-center">
+          <!-- Верхній ряд шапки -->
+          <div class="d-flex align-center w-100">
+            <v-app-bar-nav-icon variant="text" @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
 
-          <v-menu
-            v-model="isMenuOpen"
-            open-on-click
-            :close-on-content-click="false"
-            offset="14"
-          >
-            <template v-slot:activator="{ props }">
-              <v-btn
-                v-bind="props"
-                :color="isMenuOpen ? 'primary' : 'grey-darken-3'"
-                class="rounded-lg mr-4"
-                height="48"
-                :prepend-icon="isMenuOpen ? 'mdi-close' : 'mdi-apps'"
-                variant="flat"
-              >
-                Каталог
-              </v-btn>
-            </template>
+            <!-- Посилання на головну сторінку -->
+            <router-link
+              :to="{ name: 'home' }"
+              class="no-decoration"
+            >
+              <v-app-bar-title class="font-weight-bold pr-4">E-Shop</v-app-bar-title>
+            </router-link>
+
+            <v-menu
+              v-model="isMenuOpen"
+              open-on-click
+              :close-on-content-click="false"
+              offset="14"
+            >
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  :color="isMenuOpen ? 'primary' : 'grey-darken-3'"
+                  class="rounded-lg mr-4"
+                  height="48"
+                  :prepend-icon="isMenuOpen ? 'mdi-close' : 'mdi-apps'"
+                  variant="flat"
+                >
+                  Каталог
+                </v-btn>
+              </template>
+
               <v-card max-width="800" width="100vw">
                 <v-row no-gutters>
                   <v-col cols="4" class="border-e">
@@ -172,79 +183,83 @@
                         <v-divider v-if="index < hoveredCategory.children.length - 1" class="my-2"></v-divider>
                       </template>
                     </v-list>
+
                     <div v-else class="d-flex align-center justify-center h-100 text-grey">
                       Нема підкатегорій
                     </div>
                   </v-col>
                 </v-row>
               </v-card>
-          </v-menu>
+            </v-menu>
 
-          <v-responsive max-width="500">
-            <v-text-field
-              density="compact"
-              label="Я шукаю..."
-              variant="solo-filled"
-              prepend-inner-icon="mdi-magnify"
-              hide-details
-              flat
-            ></v-text-field>
-          </v-responsive>
+            <v-spacer></v-spacer>
 
-          <v-spacer></v-spacer>
+            <v-btn :icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" @click="toggleTheme"></v-btn>
+            <v-btn icon><v-icon>mdi-bell-outline</v-icon></v-btn>
 
-          <v-btn :icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" @click="toggleTheme"></v-btn>
-          <v-btn icon><v-icon>mdi-bell-outline</v-icon></v-btn>
-          <!-- Favorite icon -->
-          <div class="favorite-container">
-            <v-badge
-              :content="favoriteStore.totalFavorites"
-              color="red"
-              overlap
-              location="top end"
-              v-if="favoriteStore.totalFavorites > 0"
-              class="favorite-badge"
-            >
-              <v-btn icon @click="onFavoriteIconClick" aria-label="Обране" class="favorite-btn-header">
-                <v-icon>mdi-heart</v-icon>
+            <!-- Favorite icon -->
+            <div class="favorite-container">
+              <v-badge
+                :content="favoriteStore.totalFavorites"
+                color="red"
+                overlap
+                location="top end"
+                v-if="favoriteStore.totalFavorites > 0"
+                class="favorite-badge"
+              >
+                <v-btn icon @click="onFavoriteIconClick" aria-label="Обране" class="favorite-btn-header">
+                  <v-icon>mdi-heart</v-icon>
+                </v-btn>
+              </v-badge>
+
+              <v-btn v-else icon @click="onFavoriteIconClick" aria-label="Обране" class="favorite-btn-header">
+                <v-icon>mdi-heart-outline</v-icon>
               </v-btn>
-            </v-badge>
+            </div>
 
-            <v-btn v-else icon @click="onFavoriteIconClick" aria-label="Обране" class="favorite-btn-header">
-              <v-icon>mdi-heart-outline</v-icon>
-            </v-btn>
-          </div>
+            <!-- Cart icon with badge -->
+            <div class="cart-container">
+              <v-badge
+                :content="cart.totalItems"
+                color="primary"
+                overlap
+                location="top end"
+                v-if="cart.totalItems > 0"
+                class="cart-badge"
+              >
+                <v-btn icon @click="onCartIconClick" aria-label="Кошик" class="cart-btn">
+                  <v-icon>mdi-cart-outline</v-icon>
+                </v-btn>
+              </v-badge>
 
-          <!-- Cart icon with badge -->
-          <div class="cart-container">
-            <v-badge
-              :content="cart.totalItems"
-              color="primary"
-              overlap
-              location="top end"
-              v-if="cart.totalItems > 0"
-              class="cart-badge"
-            >
-              <v-btn icon @click="onCartIconClick" aria-label="Кошик" class="cart-btn">
+              <v-btn v-else icon @click="onCartIconClick" aria-label="Кошик" class="cart-btn">
                 <v-icon>mdi-cart-outline</v-icon>
               </v-btn>
-            </v-badge>
+            </div>
 
-            <v-btn v-else icon @click="onCartIconClick" aria-label="Кошик" class="cart-btn">
-              <v-icon>mdi-cart-outline</v-icon>
-            </v-btn>
+            <v-divider vertical class="mx-2"></v-divider>
+
+            <template v-if="!authStore.isAuthenticated">
+              <v-btn variant="text" class="mx-1" @click="authStore.openLoginDialog()">Увійти</v-btn>
+              <v-btn variant="outlined" class="mx-1" @click="authStore.openRegisterDialog()">Зареєструватися</v-btn>
+            </template>
+
+            <v-avatar
+              v-if="authStore.isAuthenticated"
+              color="primary"
+              size="40"
+              style="cursor: pointer;"
+              @click="isProfileDrawerOpen = true"
+            >
+              <v-icon icon="mdi-account-circle"></v-icon>
+            </v-avatar>
           </div>
 
-          <v-divider vertical class="mx-2"></v-divider>
+          <!-- Пошук на всю ширину контейнера -->
+          <div class="mt-3 w-100">
+            <HeaderSearchBar />
+          </div>
 
-          <template v-if="!authStore.isAuthenticated">
-            <v-btn variant="text" class="mx-1" @click="authStore.openLoginDialog()">Увійти</v-btn>
-            <v-btn variant="outlined" class="mx-1" @click="authStore.openRegisterDialog()">Зареєструватися</v-btn>
-          </template>
-
-          <v-avatar v-if="authStore.isAuthenticated" color="primary" size="40" style="cursor: pointer;" @click="isProfileDrawerOpen = true">
-            <v-icon icon="mdi-account-circle"></v-icon>
-          </v-avatar>
         </v-container>
       </v-app-bar>
     </template>
@@ -331,8 +346,10 @@ import CartSidebar from './components/cart/CartSidebar.vue';
 import LoginDialog from '@/components/LoginDialog.vue';
 import RegisterDialog from '@/components/RegisterDialog.vue';
 import ForgotPasswordDialog from '@/components/ForgotPasswordDialog.vue';
+import HeaderSearchBar from '@/components/search/HeaderSearchBar.vue';
 import { useFavoriteStore } from '@/stores/favoriteStore';
 import { useFavoriteSellerStore } from '@/stores/favoriteSellerStore';
+import { useSearchStore } from '@/stores/searchStore';
 import apiClient from '@/api';
 
 import ChatDrawer from '@/components/chat/ChatDrawer.vue';
@@ -342,6 +359,8 @@ const categoryStore = useCategoryStore();
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+// Посилання на store пошуку
+const searchStore = useSearchStore();
 // Посилання на store кошика
 const cart = useCartStore();
 // Посилання на store обраного
@@ -374,6 +393,7 @@ const phoneNumbers = ref(['0 800 123-45-67', '044 123-45-67', '050 123-45-67']);
 
 
 const emptyCartDialog = ref(false);
+
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible') authStore.revalidateUser();
@@ -507,6 +527,9 @@ onMounted(async () => {
     if (authStore.isAuthenticated) {
       await favoriteStore.loadFromServer();
       await favoriteSellerStore.loadFromServer();
+      await searchStore.loadHistoryFromServer();
+    } else {
+      searchStore.loadLocalHistory();
     }
 
   } catch (e) {
@@ -533,6 +556,13 @@ onUnmounted(() => {
   .favorite-container { position: relative; display: inline-flex; align-items: center; }
   .favorite-badge >>> .v-badge__badge, .favorite-badge .v-badge__badge { transform: translate(-40%, 40%) !important; }
   .favorite-btn-header { width: 48px; height: 48px; }
+  .main-header-bar {
+    align-items: stretch !important;
+  }
+
+  .w-100 {
+    width: 100%;
+  }
 </style>
 
 <style>

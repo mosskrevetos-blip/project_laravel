@@ -6,6 +6,7 @@ import router from '@/router';
 import { useCartStore } from '@/stores/cartStore';
 import { useFavoriteStore } from '@/stores/favoriteStore';
 import { useFavoriteSellerStore } from '@/stores/favoriteSellerStore';
+import { useSearchStore } from '@/stores/searchStore';
 
 export const useAuthStore = defineStore('publicAuth', {
   state: () => ({
@@ -138,6 +139,10 @@ export const useAuthStore = defineStore('publicAuth', {
       const favoriteSellerStore = useFavoriteSellerStore();
       await favoriteSellerStore.syncWithServer();
 
+      // Синхронізація історії пошуку після входу
+      const searchStore = useSearchStore();
+      await searchStore.syncWithServer();
+
       const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
       sessionStorage.removeItem('redirectAfterLogin');
 
@@ -173,6 +178,10 @@ export const useAuthStore = defineStore('publicAuth', {
       // Синхронізація обраних продавців після реєстрації
       const favoriteSellerStore = useFavoriteSellerStore();
       await favoriteSellerStore.syncWithServer();
+
+      // Синхронізація історії пошуку після реєстрації
+      const searchStore = useSearchStore();
+      await searchStore.syncWithServer();
 
       await this.finalizeAuthFlow();
     },

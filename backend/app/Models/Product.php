@@ -16,6 +16,7 @@ class Product extends Model
     // використання фабрики для моделі
     use HasFactory;
 
+    
     /**
      * The attributes that are mass assignable.
      *
@@ -42,6 +43,7 @@ class Product extends Model
         'deleted_by_user',
         'deleted_by_admin',
     ];
+
 
     protected $casts = [
         'properties' => 'array',
@@ -93,6 +95,7 @@ class Product extends Model
         return $slug;
     }
 
+
     /**
      * Отримати URL товару
      */
@@ -113,6 +116,7 @@ class Product extends Model
               ->where('deleted_by_admin', false);
     }
 
+
     /**
      * Фільтрація товарів по користувачу (для кабінету продавця)
      */
@@ -127,17 +131,40 @@ class Product extends Model
         }
     }
 
+
+    // Scope для пошуку - тільки ті товари, які можна показувати в результатах пошуку
+    public function scopePublishedForSearch($query)
+    {
+        return $query
+            ->where('moderation_status', '!=', 'rejected')
+            ->where('moderation_status', '!=', 'pending')
+            ->where('is_paid', true)
+            ->where('is_visible', true)
+            ->where(function ($q) {
+                $q->whereNull('deleted_by_user')->orWhere('deleted_by_user', false);
+            })
+            ->where(function ($q) {
+                $q->whereNull('deleted_by_admin')->orWhere('deleted_by_admin', false);
+            })
+            ->where(function ($q) {
+                $q->whereNull('is_unavailable')->orWhere('is_unavailable', false);
+            });
+    }
+
+
     // Зв'язок з користувачем
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+
     // Зв'язок з категорією
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
+
 
     /**
      * Отримати вторинну категорію, до якої належить товар.
@@ -147,11 +174,13 @@ class Product extends Model
         return $this->belongsTo(Category::class, 'secondary_category_id');
     }
 
+
     // Зв'язок з замовленнями
     public function orders(): BelongsToMany
     {
         return $this->belongsToMany(Order::class)->withPivot('quantity', 'price');
     }
+
 
     /**
      * Користувачі, які додали цей товар в обране
