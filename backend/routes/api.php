@@ -138,6 +138,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/search/history', [SearchController::class, 'history']);
     Route::post('/search/history', [SearchController::class, 'storeHistory']);
     Route::post('/search/history/sync', [SearchController::class, 'syncHistory']);
+    Route::delete('/search/history', [SearchController::class, 'clearHistory']);
+    Route::delete('/search/history/{history}', [SearchController::class, 'destroyHistoryItem']);
 
 });
 

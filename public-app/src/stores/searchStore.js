@@ -33,6 +33,10 @@ export const useSearchStore = defineStore('search', () => {
 
   let suggestionsDebounce = null;
 
+  function normalizeQuery(value) {
+    return String(value || '').trim();
+  }
+
   // =========================
   // localStorage history
   // =========================
@@ -45,7 +49,6 @@ export const useSearchStore = defineStore('search', () => {
       }
 
       const parsed = JSON.parse(raw);
-
       history.value = Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       history.value = [];
@@ -67,10 +70,6 @@ export const useSearchStore = defineStore('search', () => {
     } catch (e) {
       // ignore
     }
-  }
-
-  function normalizeQuery(value) {
-    return String(value || '').trim();
   }
 
   // =========================
@@ -148,6 +147,52 @@ export const useSearchStore = defineStore('search', () => {
     } catch (err) {
       console.error('Помилка синхронізації історії пошуку:', err);
     }
+  }
+
+  async function removeHistoryItem(item) {
+    const authStore = useAuthStore();
+
+    if (authStore.isAuthenticated) {
+      if (!item?.id) {
+        await loadHistoryFromServer();
+        return;
+      }
+
+      try {
+        await apiClient.delete(`/search/history/${item.id}`);
+        history.value = history.value.filter(historyItem => historyItem.id !== item.id);
+      } catch (err) {
+        console.error('Помилка видалення запису з історії:', err);
+      }
+
+      return;
+    }
+
+    history.value = history.value.filter(historyItem => {
+      return !(
+        historyItem.query === item.query &&
+        historyItem.searched_at === item.searched_at
+      );
+    });
+
+    persistLocalHistory();
+  }
+
+  async function clearAllHistory() {
+    const authStore = useAuthStore();
+
+    if (authStore.isAuthenticated) {
+      try {
+        await apiClient.delete('/search/history');
+        history.value = [];
+      } catch (err) {
+        console.error('Помилка очищення історії пошуку:', err);
+      }
+
+      return;
+    }
+
+    clearLocalHistory();
   }
 
   // =========================
@@ -301,19 +346,21 @@ export const useSearchStore = defineStore('search', () => {
     const normalized = normalizeQuery(rawQuery);
 
     if (!normalized) {
-      return;
+        return;
     }
 
     query.value = normalized;
 
     router.push({
-      name: 'search.results',
-      query: {
+        name: 'search.results',
+        query: {
         q: normalized,
         page: 1,
-      },
+        record: '1',
+        ts: String(Date.now()),
+        },
     });
-  }
+    }
 
   const filteredHistory = computed(() => {
     const normalized = normalizeQuery(query.value);
@@ -350,6 +397,8 @@ export const useSearchStore = defineStore('search', () => {
     loadHistoryFromServer,
     recordSearch,
     syncWithServer,
+    removeHistoryItem,
+    clearAllHistory,
     searchProducts,
     fetchSuggestions,
     debounceFetchSuggestions,

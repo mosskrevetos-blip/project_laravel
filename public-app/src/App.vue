@@ -119,7 +119,7 @@
         class="border-b main-header-bar"
         height="120"
       >
-        <v-container class="pa-0 py-3 d-flex flex-column justify-center">
+        <v-container class="pa-0 py-3 d-flex flex-column justify-center main-header-container">
           <!-- Верхній ряд шапки -->
           <div class="d-flex align-center w-100">
             <v-app-bar-nav-icon variant="text" @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
@@ -256,7 +256,7 @@
           </div>
 
           <!-- Пошук на всю ширину контейнера -->
-          <div class="mt-3 w-100">
+          <div class="mt-3 w-100 header-search-slot">
             <HeaderSearchBar />
           </div>
 
@@ -563,9 +563,35 @@ onUnmounted(() => {
   .w-100 {
     width: 100%;
   }
+
+  .main-header-bar {
+      align-items: stretch !important;
+      overflow: visible !important;
+    }
+
+    .main-header-container {
+      overflow: visible !important;
+      position: relative;
+      z-index: 20;
+    }
+
+    .header-search-slot {
+      position: relative;
+      overflow: visible !important;
+      z-index: 30;
+    }
 </style>
 
 <style>
   .v-overlay__scrim { background: rgba(0, 0, 0, 1) !important; }
   .v-overlay { --v-overlay-opacity: 0.86 !important; }
+
+  .v-app-bar {
+    overflow: visible !important;
+  }
+
+  .v-toolbar__content,
+  .v-toolbar__extension {
+    overflow: visible !important;
+  }
 </style>

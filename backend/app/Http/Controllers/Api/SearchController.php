@@ -99,9 +99,10 @@ class SearchController extends Controller
         $user = $request->user();
 
         $items = $user->searchHistories()
+            ->where('is_visible', true)
             ->latest('searched_at')
             ->limit(10)
-            ->get(['id', 'query', 'result_count', 'searched_at']);
+            ->get(['id', 'query', 'result_count', 'is_visible', 'searched_at']);
 
         return response()->json($items);
     }
@@ -129,6 +130,7 @@ class SearchController extends Controller
             'user_id' => $request->user()->id,
             'query' => $query,
             'result_count' => $validated['result_count'],
+            'is_visible' => true,
             'searched_at' => $validated['searched_at'],
         ]);
 
@@ -161,6 +163,7 @@ class SearchController extends Controller
                 'user_id' => $user->id,
                 'query' => $query,
                 'result_count' => $item['result_count'],
+                'is_visible' => true,
                 'searched_at' => $item['searched_at'],
             ]);
 
@@ -170,6 +173,36 @@ class SearchController extends Controller
         return response()->json([
             'message' => 'Історію пошуку синхронізовано успішно.',
             'created' => $createdCount,
+        ]);
+    }
+
+    public function destroyHistoryItem(Request $request, SearchHistory $history): JsonResponse
+    {
+        if ($history->user_id !== $request->user()->id) {
+            return response()->json([
+                'message' => 'Доступ заборонено.',
+            ], 403);
+        }
+
+        $history->update([
+            'is_visible' => false,
+        ]);
+
+        return response()->json([
+            'message' => 'Запис історії видалено успішно.',
+        ]);
+    }
+
+    public function clearHistory(Request $request): JsonResponse
+    {
+        $request->user()->searchHistories()
+            ->where('is_visible', true)
+            ->update([
+                'is_visible' => false,
+            ]);
+
+        return response()->json([
+            'message' => 'Історію пошуку очищено успішно.',
         ]);
     }
 }

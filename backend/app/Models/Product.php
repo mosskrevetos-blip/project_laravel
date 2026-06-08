@@ -16,7 +16,7 @@ class Product extends Model
     // використання фабрики для моделі
     use HasFactory;
 
-    
+
     /**
      * The attributes that are mass assignable.
      *
@@ -133,22 +133,14 @@ class Product extends Model
 
 
     // Scope для пошуку - тільки ті товари, які можна показувати в результатах пошуку
-    public function scopePublishedForSearch($query)
+    public function scopePublishedForSearch(Builder $query): void
     {
-        return $query
-            ->where('moderation_status', '!=', 'rejected')
-            ->where('moderation_status', '!=', 'pending')
+        $query
+            ->where('moderation_status', 'approved')
             ->where('is_paid', true)
             ->where('is_visible', true)
-            ->where(function ($q) {
-                $q->whereNull('deleted_by_user')->orWhere('deleted_by_user', false);
-            })
-            ->where(function ($q) {
-                $q->whereNull('deleted_by_admin')->orWhere('deleted_by_admin', false);
-            })
-            ->where(function ($q) {
-                $q->whereNull('is_unavailable')->orWhere('is_unavailable', false);
-            });
+            ->where('deleted_by_user', false)
+            ->where('deleted_by_admin', false);
     }
 
 

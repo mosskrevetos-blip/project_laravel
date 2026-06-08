@@ -11,10 +11,13 @@ class SearchHistory extends Model
         'user_id',
         'query',
         'result_count',
+        'is_visible',
         'searched_at',
     ];
 
     protected $casts = [
+        'result_count' => 'integer',
+        'is_visible' => 'boolean',
         'searched_at' => 'datetime',
     ];
 

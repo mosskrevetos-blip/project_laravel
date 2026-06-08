@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSearchStore } from '@/stores/searchStore';
 import ProductCard from '@/components/product/ProductCard.vue';
@@ -83,10 +83,12 @@ const route = useRoute();
 const router = useRouter();
 const searchStore = useSearchStore();
 
-const lastRecordedKey = ref(null);
-
 const normalizedQuery = computed(() => {
   return searchStore.normalizeQuery(route.query.q || '');
+});
+
+const shouldRecordSearch = computed(() => {
+  return route.query.record === '1';
 });
 
 const currentPage = computed({
@@ -98,12 +100,24 @@ const currentPage = computed({
     router.push({
       name: 'search.results',
       query: {
+        ...route.query,
         q: normalizedQuery.value,
         page: value,
       },
     });
   },
 });
+
+async function cleanupRecordFlagsInUrl() {
+  const nextQuery = { ...route.query };
+  delete nextQuery.record;
+  delete nextQuery.ts;
+
+  await router.replace({
+    name: 'search.results',
+    query: nextQuery,
+  });
+}
 
 async function loadSearchResults() {
   const query = normalizedQuery.value;
@@ -122,19 +136,20 @@ async function loadSearchResults() {
     perPage: 12,
   });
 
-  const recordKey = `${query}::${page}::${total}`;
-
-  if (lastRecordedKey.value !== recordKey) {
+  // Записываем только если это был именно submit поиска,
+  // а не refresh/повторное открытие URL
+  if (shouldRecordSearch.value && page === 1) {
     await searchStore.recordSearch({
       query,
       resultCount: total,
     });
-    lastRecordedKey.value = recordKey;
+
+    await cleanupRecordFlagsInUrl();
   }
 }
 
 watch(
-  () => [route.query.q, route.query.page],
+  () => [route.query.q, route.query.page, route.query.record, route.query.ts],
   async () => {
     await loadSearchResults();
   },
