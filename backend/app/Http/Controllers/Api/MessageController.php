@@ -7,84 +7,53 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageImage;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
+use Intervention\Image\ImageManager;
+use Intervention\Image\Drivers\Gd\Driver;
 
 class MessageController extends Controller
 {
+    /**
+     * List messages in conversation
+     */
     public function index(Request $request, Conversation $conversation)
     {
         $user = $request->user();
+        $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
 
-        if ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id) {
+        if (
+            !$isAdminOrManager &&
+            $conversation->buyer_id !== $user->id &&
+            $conversation->seller_id !== $user->id
+        ) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        $perPage = (int) $request->query('per_page', 30);
+        $perPage = min((int) $request->get('per_page', 100), 100);
 
         $messages = Message::query()
             ->where('conversation_id', $conversation->id)
-            ->with(['images'])
+            ->with('images')
             ->orderByDesc('id')
             ->paginate($perPage);
+
+        // hide deleted content, but keep message row
+        $messages->getCollection()->transform(function ($m) {
+            if ((bool) $m->deleted_by_user) {
+                $m->body = null;
+                $m->setRelation('images', collect());
+            }
+            return $m;
+        });
 
         return response()->json($messages);
     }
 
-    private function storeChatImageAsWebp(UploadedFile $file, int $senderId, int $productId): array
-    {
-        $dir = "chat/{$senderId}/products/{$productId}";
-
-        // имя файла (уникальное)
-        // Пример: img_20260411_134502_1712849102_ab12cd34.webp
-        $tsHuman = now()->format('Ymd_His');          // 20260411_134502
-        $tsUnix  = now()->timestamp;                 // 1712849102
-        $rand    = bin2hex(random_bytes(4));         // 8 hex chars
-        $fileName = "img_{$tsHuman}_{$tsUnix}_{$rand}.webp";
-        $path = "{$dir}/{$fileName}";
-
-        $image = match ($file->getMimeType()) {
-            'image/jpeg' => @imagecreatefromjpeg($file->getPathname()),
-            'image/png'  => @imagecreatefrompng($file->getPathname()),
-            'image/webp' => @imagecreatefromwebp($file->getPathname()),
-            default => null,
-        };
-
-        if (!$image) {
-            throw new \RuntimeException('Unsupported image type or corrupted file.');
-        }
-
-        // для PNG/палитровых изображений
-        if (function_exists('imagepalettetotruecolor')) {
-            @imagepalettetotruecolor($image);
-        }
-        @imagealphablending($image, true);
-        @imagesavealpha($image, true);
-
-        // качество webp (можешь поменять на 90 при желании)
-        $quality = 80;
-
-        // ВАЖНО: не делаем resize => исходное разрешение сохраняется
-        ob_start();
-        $ok = @imagewebp($image, null, $quality);
-        $webp = ob_get_clean();
-        imagedestroy($image);
-
-        if (!$ok || $webp === false || $webp === '') {
-            throw new \RuntimeException('Failed to encode image to webp.');
-        }
-
-        Storage::disk('public')->makeDirectory($dir);
-        Storage::disk('public')->put($path, $webp);
-
-        return [
-            'path' => $path,
-            'mime' => 'image/webp',
-            'size' => strlen($webp),
-        ];
-    }
-
-
+    /**
+     * Send message
+     */
     public function store(Request $request, Conversation $conversation)
     {
         $user = $request->user();
@@ -94,61 +63,149 @@ class MessageController extends Controller
         }
 
         $validated = $request->validate([
-            'body' => 'nullable|string',
-            'product_id' => 'required|exists:products,id',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096', // 4MB
+            'body'       => ['nullable', 'string', 'max:5000'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'image'      => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ]);
 
-        if ((int)$validated['product_id'] !== (int)$conversation->product_id) {
-            return response()->json(['message' => 'product_id does not match conversation'], 422);
+        $hasBody = isset($validated['body']) && trim((string) $validated['body']) !== '';
+        $hasImage = $request->hasFile('image');
+
+        if (!$hasBody && !$hasImage) {
+            return response()->json(['message' => 'Message body or image is required'], 422);
         }
 
-        if (
-            (!isset($validated['body']) || trim((string)$validated['body']) === '')
-            && !$request->hasFile('image')
-        ) {
-            return response()->json(['message' => 'Message must have text or image'], 422);
+        if ((int) $validated['product_id'] !== (int) $conversation->product_id) {
+            return response()->json(['message' => 'Invalid product context'], 422);
         }
 
-        $message = Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_id' => $user->id,
-            'body' => $validated['body'] ?? null,
-            'product_id' => $validated['product_id'] ?? null,
-        ]);
-
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-
-            $stored = $this->storeChatImageAsWebp($file, $user->id, (int) $validated['product_id']);
-
-            MessageImage::create([
-                'message_id' => $message->id,
-                'path' => $stored['path'],
-                'mime' => $stored['mime'],
-                'size' => (int) $stored['size'],
+        $message = DB::transaction(function () use ($conversation, $user, $validated, $request) {
+            $message = Message::create([
+                'conversation_id'  => $conversation->id,
+                'sender_id'        => $user->id,
+                'product_id'       => $validated['product_id'],
+                'body'             => isset($validated['body']) ? trim((string) $validated['body']) : null,
+                'deleted_by_user'  => false,
             ]);
-        }
+
+            if ($request->hasFile('image')) {
+                $file = $request->file('image');
+                $url = $this->storeChatImageAsWebp($conversation->id, $message->id, $file);
+
+                MessageImage::create([
+                    'message_id' => $message->id,
+                    'url'        => $url,
+                ]);
+            }
+
+            $conversation->updated_at = now();
+            $conversation->save();
+
+            return $message;
+        });
 
         $message->load('images');
 
         return response()->json($message, 201);
     }
 
+    /**
+     * Mark messages as read
+     * IMPORTANT:
+     * - Admin/manager in scope=all can OPEN chats, but should NOT change read status.
+     *   So for admin/manager we return ok without updates.
+     */
     public function markRead(Request $request, Conversation $conversation)
     {
         $user = $request->user();
+        $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
 
-        if ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id) {
+        if (
+            !$isAdminOrManager &&
+            $conversation->buyer_id !== $user->id &&
+            $conversation->seller_id !== $user->id
+        ) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        Message::query()
+        // Do not change read statuses for admin/manager moderation view
+        if ($isAdminOrManager) {
+            return response()->json([
+                'ok' => true,
+                'updated' => 0,
+                'skipped' => 'admin_or_manager_view',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'message_ids'   => ['nullable', 'array'],
+            'message_ids.*' => ['integer'],
+        ]);
+
+        $query = Message::query()
             ->where('conversation_id', $conversation->id)
             ->whereNull('read_at')
-            ->where('sender_id', '!=', $user->id)
-            ->update(['read_at' => now()]);
+            ->where('sender_id', '!=', $user->id);
 
-        return response()->json(['ok' => true]);
+        if (!empty($validated['message_ids'])) {
+            $query->whereIn('id', $validated['message_ids']);
+        }
+
+        $updated = $query->update(['read_at' => now()]);
+
+        return response()->json([
+            'ok' => true,
+            'updated' => $updated,
+        ]);
+    }
+
+    /**
+     * Author deletes own message (soft flag)
+     */
+    public function deleteByAuthor(Request $request, Message $message)
+    {
+        $user = $request->user();
+
+        if ((int) $message->sender_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $conversation = Conversation::find($message->conversation_id);
+        if (!$conversation || ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id)) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $message->deleted_by_user = true;
+        $message->save();
+
+        return response()->json([
+            'ok' => true,
+            'message_id' => $message->id,
+        ]);
+    }
+
+    /**
+     * Save chat image as webp
+     */
+    protected function storeChatImageAsWebp(int $conversationId, int $messageId, $file): string
+    {
+        $manager = new ImageManager(new Driver());
+
+        $image = $manager->read($file->getPathname());
+
+        $maxW = 1600;
+        $maxH = 1600;
+
+        if ($image->width() > $maxW || $image->height() > $maxH) {
+            $image->scaleDown($maxW, $maxH);
+        }
+
+        $fileName = Str::uuid()->toString() . '.webp';
+        $dir = "chat/{$conversationId}/{$messageId}";
+        $path = "{$dir}/{$fileName}";
+
+        Storage::disk('public')->put($path, (string) $image->toWebp(82));
+
+        return Storage::url($path); // e.g. /storage/chat/...
     }
 }

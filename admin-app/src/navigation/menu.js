@@ -7,6 +7,12 @@ export const navItems = [
     requiredRoles: [], 
   },
   {
+    title: 'Повідомлення',
+    icon: 'mdi-message-text-outline',
+    to: '/messages',
+    requiredRoles: [], // или нужные роли
+  },
+  {
     title: 'Категорії',
     icon: 'mdi-format-list-bulleted-square',
     to: { name: 'categories' },

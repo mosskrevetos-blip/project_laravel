@@ -133,6 +133,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
     Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
     Route::post('/conversations/{conversation}/read', [MessageController::class, 'markRead']);
+    Route::post('/conversations/{conversation}/report', [ConversationController::class, 'report']);
+    Route::post('/messages/{message}/delete-by-author', [MessageController::class, 'deleteByAuthor']);
 
     // Пошук та історія пошуку
     Route::get('/search/history', [SearchController::class, 'history']);

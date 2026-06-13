@@ -33,16 +33,26 @@
 
         </v-list-item>
         <v-divider></v-divider>
+        
         <!-- Проходим циклом по массиву userMenuItems. Кожен елемент масиву - це пункт меню. -->
+        <!-- Якщо пункт меню (item) повинен відображатися (shouldShowItem), він відображається з іконкою, заголовком і посиланням. -->
         <template v-for="item in userMenuItems" :key="item.title">
-          <!-- Якщо пункт меню (item) повинен відображатися (shouldShowItem), 
-          він відображається з іконкою, заголовком і посиланням. -->
           <v-list-item
             v-if="shouldShowItem(item)"
             :prepend-icon="item.icon"
-            :title="item.title"
             :href="item.href"
-          ></v-list-item>
+          >
+            <v-list-item-title class="d-flex align-center justify-space-between w-100">
+              <span>{{ item.title }}</span>
+
+              <v-badge
+                v-if="item.title === 'Повідомлення' && !messageStore.loadingConversations && messageStore.unreadThreadsCount > 0"
+                :content="messageStore.unreadThreadsCount"
+                color="red"
+                inline
+              />
+            </v-list-item-title>
+          </v-list-item>
         </template>
 
         <v-divider></v-divider>
@@ -244,15 +254,36 @@
               <v-btn variant="outlined" class="mx-1" @click="authStore.openRegisterDialog()">Зареєструватися</v-btn>
             </template>
 
-            <v-avatar
-              v-if="authStore.isAuthenticated"
-              color="primary"
-              size="40"
-              style="cursor: pointer;"
-              @click="isProfileDrawerOpen = true"
-            >
-              <v-icon icon="mdi-account-circle"></v-icon>
-            </v-avatar>
+            <!-- Профіль користувача (відображається, якщо користувач аутентифікований) -->
+            <div v-if="authStore.isAuthenticated" class="profile-container">
+              <v-badge
+                v-if="!messageStore.loadingConversations && messageStore.unreadThreadsCount > 0"
+                :content="messageStore.unreadThreadsCount"
+                color="red"
+                overlap
+                location="top end"
+                class="message-badge"
+              >
+                <v-avatar
+                  color="primary"
+                  size="40"
+                  style="cursor: pointer;"
+                  @click="isProfileDrawerOpen = true"
+                >
+                  <v-icon icon="mdi-account-circle"></v-icon>
+                </v-avatar>
+              </v-badge>
+
+              <v-avatar
+                v-else
+                color="primary"
+                size="40"
+                style="cursor: pointer;"
+                @click="isProfileDrawerOpen = true"
+              >
+                <v-icon icon="mdi-account-circle"></v-icon>
+              </v-avatar>
+            </div>
           </div>
 
           <!-- Пошук на всю ширину контейнера -->
@@ -416,6 +447,7 @@ const adminPanelUrl = import.meta.env.VITE_ADMIN_SITE_URL;
 const userMenuItems = ref([
   { title: 'Мої Товари', icon: 'mdi-package-variant-closed', href: `${adminPanelUrl}/products`, requiredRoles: ['seller','user','manager','wholesaler','manufacturer','admin'] },
   { title: 'Мої Замовлення', icon: 'mdi-cart-outline', href: `${adminPanelUrl}/orders`, requiredRoles: [] },
+  { title: 'Повідомлення', icon: 'mdi-message-text-outline', href: `${adminPanelUrl}/messages`, requiredRoles: [] },
   { title: 'Адмін-панель', icon: 'mdi-shield-crown', href: adminPanelUrl, requiredRoles: ['admin','manager'] },
 ]);
 
@@ -506,9 +538,29 @@ function onFavoriteIconClick() {
 watch(isMenuOpen, (isOpen) => { if (isOpen && rootCategories.value.length > 0 && !hoveredCategory.value) hoveredCategory.value = rootCategories.value[0]; });
 
 // Перенаправлення користувача на головну сторінку, якщо він вийшов з системи на сторінці, що вимагає аутентифікації
-watch(() => authStore.isAuthenticated, (isAuth, wasAuth) => {
-  if (wasAuth === true && isAuth === false) { if (route.meta.requiresAuth) router.push({ name: 'home' }); }
-});
+watch(
+  () => authStore.isAuthenticated,
+  async (isAuth, wasAuth) => {
+    // logout
+    if (wasAuth === true && isAuth === false) {
+      if (route.meta.requiresAuth) router.push({ name: 'home' });
+
+      // очищаем чат-данные, чтобы бейдж не висел от прошлого юзера
+      messageStore.conversations = [];
+      return;
+    }
+
+    // login (или восстановление сессии)
+    if (isAuth) {
+      try {
+        await messageStore.loadConversations();
+      } catch (e) {
+        // ignore
+      }
+    }
+  },
+  { immediate: true }
+);
 
 
 // Ініціалізація при монтуванні компонента
@@ -569,17 +621,29 @@ onUnmounted(() => {
       overflow: visible !important;
     }
 
-    .main-header-container {
-      overflow: visible !important;
-      position: relative;
-      z-index: 20;
-    }
+  .main-header-container {
+    overflow: visible !important;
+    position: relative;
+    z-index: 20;
+  }
 
-    .header-search-slot {
-      position: relative;
-      overflow: visible !important;
-      z-index: 30;
-    }
+  .header-search-slot {
+    position: relative;
+    overflow: visible !important;
+    z-index: 30;
+  }
+
+  .profile-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* позиция бейджа как у favorite/cart */
+  .message-badge :deep(.v-badge__badge) {
+    transform: translate(-18%, 18%) !important;
+  }
+
 </style>
 
 <style>

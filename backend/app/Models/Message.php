@@ -14,6 +14,7 @@ class Message extends Model
         'body',
         'product_id',
         'read_at',
+        'deleted_by_user',
     ];
 
     protected $casts = [

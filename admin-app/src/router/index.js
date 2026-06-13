@@ -7,6 +7,7 @@ import LoginView from '../views/LoginView.vue';
 import UsersView from '../views/UsersView.vue';
 import OrdersView from '../views/OrdersView.vue';
 import FavoritesView from '../views/FavoritesView.vue';
+import MessagesView from '../views/MessagesView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -50,6 +51,12 @@ const router = createRouter({
       path: '/favorites',
       name: 'favorites',
       component: FavoritesView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/messages',
+      name: 'messages',
+      component: MessagesView,
       meta: { requiresAuth: true },
     },
     // Редирект с главной страницы на страницу товаров

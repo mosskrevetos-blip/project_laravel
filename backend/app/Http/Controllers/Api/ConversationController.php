@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ConversationController extends Controller
 {
@@ -19,45 +18,60 @@ class ConversationController extends Controller
             return response()->json(['message' => 'Cannot start conversation with yourself'], 422);
         }
 
-        // product_id обязателен
         $validated = $request->validate([
             'product_id' => 'required|exists:products,id',
         ]);
 
         $productId = (int) $validated['product_id'];
 
-        // один чат на buyer + seller + product
         $conversation = Conversation::firstOrCreate([
             'buyer_id'   => $buyer->id,
             'seller_id'  => $seller->id,
             'product_id' => $productId,
         ]);
 
-        // полезно для UI (можешь оставить только seller если не нужно)
         $conversation->load(
             'seller:id,name,last_seen_at',
-            'product:id,title' // если в Product поле называется иначе — поменяй
+            'buyer:id,name,last_seen_at',
+            'product:id,title,slug,image_url,image_variants'
         );
 
         return response()->json($conversation);
     }
 
-    // list conversations for current user (buyer side for now)
+    // list conversations
+    // scope=my  -> only my conversations
+    // scope=all -> all conversations (admin/manager only)
     public function index(Request $request)
     {
         $user = $request->user();
 
-        // buyer only for public-app
-        $conversations = Conversation::query()
-            ->where('buyer_id', $user->id)
-            ->with(['seller:id,name,last_seen_at', 'product:id,title'])
+        $scope = (string) $request->query('scope', 'my');
+        $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
+
+        $query = Conversation::query()
+            ->with([
+                'seller:id,name,last_seen_at',
+                'buyer:id,name,last_seen_at',
+                'product:id,title,slug,image_url,image_variants',
+            ])
             ->withCount([
                 'messages as unread_count' => function ($q) use ($user) {
-                    $q->whereNull('read_at')->where('sender_id', '!=', $user->id);
+                    $q->whereNull('read_at')
+                      ->where('sender_id', '!=', $user->id);
                 }
-            ])
-            ->latest('updated_at')
-            ->get();
+            ]);
+
+        if ($scope === 'all' && $isAdminOrManager) {
+            // no participant filter
+        } else {
+            $query->where(function ($q) use ($user) {
+                $q->where('buyer_id', $user->id)
+                  ->orWhere('seller_id', $user->id);
+            });
+        }
+
+        $conversations = $query->latest('updated_at')->get();
 
         return response()->json($conversations);
     }
@@ -65,13 +79,43 @@ class ConversationController extends Controller
     public function show(Request $request, Conversation $conversation)
     {
         $user = $request->user();
+        $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
 
-        if ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id) {
+        if (
+            !$isAdminOrManager &&
+            $conversation->buyer_id !== $user->id &&
+            $conversation->seller_id !== $user->id
+        ) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        $conversation->load('seller:id,name,last_seen_at', 'buyer:id,name,last_seen_at', 'product:id,title');
+        $conversation->load(
+            'seller:id,name,last_seen_at',
+            'buyer:id,name,last_seen_at',
+            'product:id,title,slug,image_url,image_variants'
+        );
 
         return response()->json($conversation);
+    }
+
+    // report conversation
+    public function report(Request $request, Conversation $conversation)
+    {
+        $user = $request->user();
+
+        if ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id) {
+            // при желании можно разрешить admin/manager жалобу тоже:
+            // if (!($user->hasRole('admin') || $user->hasRole('manager'))) { ... }
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $conversation->is_reported = true;
+        $conversation->save();
+
+        return response()->json([
+            'ok' => true,
+            'conversation_id' => $conversation->id,
+            'is_reported' => (bool) $conversation->is_reported,
+        ]);
     }
 }

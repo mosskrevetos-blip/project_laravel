@@ -21,6 +21,10 @@ export const useMessageStore = defineStore('messageStore', {
     totalUnread(state) {
       return state.conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
     },
+
+    unreadThreadsCount(state) {
+      return state.conversations.filter(c => (c.unread_count || 0) > 0).length;
+    },
   },
 
   actions: {
