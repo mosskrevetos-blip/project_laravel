@@ -1,4 +1,3 @@
-//public-app/src/components/chat/ChatDrawer.vue
 <template>
   <v-navigation-drawer
     v-model="drawerModel"
@@ -18,9 +17,26 @@
         </div>
       </div>
 
-      <v-btn icon @click="drawerModel = false" aria-label="Закрити">
-        <v-icon>mdi-close</v-icon>
-      </v-btn>
+      <div class="d-flex align-center ga-2">
+        <v-tooltip text="Поскаржитися" location="bottom">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              icon
+              variant="text"
+              color="orange-darken-2"
+              @click="openReportDialog"
+              aria-label="Поскаржитися"
+            >
+              <v-icon>mdi-emoticon-angry-outline</v-icon>
+            </v-btn>
+          </template>
+        </v-tooltip>
+
+        <v-btn icon @click="drawerModel = false" aria-label="Закрити">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+      </div>
     </v-sheet>
 
     <v-divider />
@@ -31,41 +47,67 @@
       </div>
 
       <div v-else class="messages pa-4">
-        <div
-          v-for="m in messageStore.messages"
-          :key="m.id"
-          class="message-row"
-          :class="{ 'mine': isMine(m) }"
-        >
-          <div class="bubble">
-            <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
+        <template v-for="(m, idx) in messageStore.messages" :key="m.id">
+          <div v-if="shouldShowDateDivider(messageStore.messages, idx)" class="date-divider">
+            <span>{{ formatDividerDate(m.created_at) }}</span>
+          </div>
 
-            <div v-if="m.images && m.images.length" class="images">
-              <v-img
-                v-for="(img, idx) in m.images"
-                :key="img.id"
-                :src="img.url"
-                max-width="240"
-                class="mb-2 rounded chat-image"
-                cover
-                @click="openChatLightbox(m.images, idx)"
-                @load="onAnyChatImageLoad"
-              />
-            </div>
+          <div class="message-row" :class="{ 'mine': isMine(m) }">
+            <div class="bubble" :class="{ 'bubble--with-actions': isMine(m) && !m.deleted_by_user }">
+              <div class="bubble-actions" v-if="isMine(m) && !m.deleted_by_user">
+                <v-menu location="bottom end">
+                  <template #activator="{ props }">
+                    <v-btn v-bind="props" icon size="x-small" variant="text" @click.stop>
+                      <v-icon size="16">mdi-dots-vertical</v-icon>
+                    </v-btn>
+                  </template>
 
-            <div class="meta">
-              <span class="meta-time">{{ formatTimeParts(m.created_at).time }}</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-date">{{ formatTimeParts(m.created_at).date }}</span>
+                  <v-list density="compact">
+                    <v-list-item @click="deleteMyMessage(m.id)">
+                      <template #prepend>
+                        <v-icon size="18">mdi-delete-outline</v-icon>
+                      </template>
+                      <v-list-item-title>Видалити</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+              </div>
 
-              <span v-if="isMine(m)" class="meta-status">
-                <v-icon size="14">
-                  {{ m.read_at ? 'mdi-check-all' : 'mdi-check' }}
-                </v-icon>
-              </span>
+              <template v-if="m.deleted_by_user">
+                <div class="deleted-message">Повідомлення видалено</div>
+              </template>
+
+              <template v-else>
+                <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
+
+                <div v-if="m.images && m.images.length" class="images">
+                  <v-img
+                    v-for="(img, idx2) in m.images"
+                    :key="img.id"
+                    :src="img.url"
+                    max-width="240"
+                    class="mb-2 rounded chat-image"
+                    cover
+                    @click="openChatLightbox(m.images, idx2)"
+                    @load="onAnyChatImageLoad"
+                  />
+                </div>
+              </template>
+
+              <div class="meta">
+                <span class="meta-time">{{ formatTimeParts(m.created_at).time }}</span>
+                <span class="meta-sep">·</span>
+                <span class="meta-date">{{ formatTimeParts(m.created_at).date }}</span>
+
+                <span v-if="isMine(m)" class="meta-status">
+                  <v-icon size="14">
+                    {{ m.read_at ? 'mdi-check-all' : 'mdi-check' }}
+                  </v-icon>
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -126,14 +168,11 @@
           <v-btn variant="text" @click="snackbar.show = false">OK</v-btn>
         </template>
       </v-snackbar>
-      
 
       <v-dialog v-model="chatLightbox.open" width="92%" max-width="1400">
         <v-card>
           <v-card-text class="pa-0 d-flex align-center justify-center" style="background:#000;">
             <div style="position:relative; width:100%;">
-
-              <!-- image -->
               <img
                 v-if="chatLightboxCurrentUrl"
                 :src="chatLightboxCurrentUrl"
@@ -141,13 +180,26 @@
                 style="max-height:80vh; width:100%; object-fit:contain; display:block; cursor:zoom-out;"
                 @click="chatLightbox.open = false"
               />
-
             </div>
           </v-card-text>
 
           <v-card-actions>
             <v-spacer />
             <v-btn text @click="chatLightbox.open = false">Закрыть</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <v-dialog v-model="reportDialog.open" max-width="460">
+        <v-card>
+          <v-card-title class="text-h6">Підтвердити скаргу</v-card-title>
+          <v-card-text>Ви впевнені, що хочете поскаржитися на цей діалог?</v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="reportDialog.open = false">Скасувати</v-btn>
+            <v-btn color="red-darken-2" variant="flat" :loading="reportDialog.loading" @click="confirmReport">
+              Поскаржитися
+            </v-btn>
           </v-card-actions>
         </v-card>
       </v-dialog>
@@ -159,6 +211,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue';
 import { useAuthStore } from '@/stores/authStore';
 import { useMessageStore } from '@/stores/messageStore';
+import apiClient from '@/api';
 
 const authStore = useAuthStore();
 const messageStore = useMessageStore();
@@ -180,17 +233,13 @@ function showError(text) {
 }
 
 const chatBodyEl = ref(null);
-
-// пользователь сейчас “у низа”?
 const isNearBottom = ref(true);
-
-// чтобы при открытии чата 1 раз проскроллить вниз после загрузки
 let didInitialScroll = false;
 
 function updateIsNearBottom() {
   const el = chatBodyEl.value;
   if (!el) return;
-  const threshold = 80; // px
+  const threshold = 80;
   isNearBottom.value = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - threshold);
 }
 
@@ -198,17 +247,13 @@ async function scrollToBottom({ force = false } = {}) {
   await nextTick();
   const el = chatBodyEl.value;
   if (!el) return;
-
-  // если пользователь читает историю (не внизу) — не мешаем
   if (!force && !isNearBottom.value) return;
-
   el.scrollTop = el.scrollHeight;
 }
 
 const pendingScrollToBottomForImages = ref(false);
 
 function scheduleScrollToBottomForce() {
-  // 2 кадра — чтобы дождаться пересчёта layout после загрузки изображения
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       scrollToBottom({ force: true });
@@ -218,8 +263,6 @@ function scheduleScrollToBottomForce() {
 }
 
 function onAnyChatImageLoad() {
-  // Скроллим только если это наш “режим после отправки фото”
-  // или если пользователь сейчас внизу (чтобы новые картинки не прыгали, когда он читает историю)
   if (pendingScrollToBottomForImages.value || isNearBottom.value) {
     scheduleScrollToBottomForce();
     pendingScrollToBottomForImages.value = false;
@@ -241,7 +284,7 @@ const sellerTitle = computed(() => {
 function isOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
   const last = new Date(lastSeenAt).getTime();
-  return (Date.now() - last) < 5 * 60 * 1000; // 5 min
+  return (Date.now() - last) < 5 * 60 * 1000;
 }
 
 const sellerIsOnline = computed(() => {
@@ -252,12 +295,9 @@ const sellerIsOnline = computed(() => {
 const sellerStatusText = computed(() => {
   const seller = messageStore.currentConversation?.seller;
   if (!seller) return '';
-
   if (isOnline(seller.last_seen_at)) return 'онлайн';
-
   return formatLastSeenText(seller.last_seen_at);
 });
-
 
 const chatLightbox = ref({
   open: false,
@@ -271,25 +311,11 @@ const chatLightboxCurrentUrl = computed(() => {
 });
 
 function openChatLightbox(images, startIndex = 0) {
-  const urls = (images || [])
-    .map(x => x?.url)
-    .filter(Boolean);
-
+  const urls = (images || []).map(x => x?.url).filter(Boolean);
   if (!urls.length) return;
-
   chatLightbox.value.urls = urls;
   chatLightbox.value.index = Math.max(0, Math.min(startIndex, urls.length - 1));
   chatLightbox.value.open = true;
-}
-
-function formatTimeHHmm(iso) {
-  const { time } = formatTimeParts(iso);
-  return time;
-}
-
-function formatDateDDMMYYYY(iso) {
-  const { date } = formatTimeParts(iso);
-  return date;
 }
 
 function formatYMDInTz(date, timeZone) {
@@ -304,7 +330,7 @@ function formatYMDInTz(date, timeZone) {
   const m = parts.find(p => p.type === 'month')?.value;
   const d = parts.find(p => p.type === 'day')?.value;
 
-  return `${y}-${m}-${d}`; // YYYY-MM-DD
+  return `${y}-${m}-${d}`;
 }
 
 function isSameDayInTz(aIso, bDate = new Date(), timeZone) {
@@ -312,25 +338,6 @@ function isSameDayInTz(aIso, bDate = new Date(), timeZone) {
   if (!aIso) return false;
   const a = new Date(aIso);
   return formatYMDInTz(a, tz) === formatYMDInTz(bDate, tz);
-}
-
-function formatLastSeenText(lastSeenAtIso) {
-  if (!lastSeenAtIso) return 'був(ла) в мережі давно';
-
-  const time = formatTimeHHmm(lastSeenAtIso);
-
-  // today => "сьогодні о 22:38"
-  if (isSameDayInTz(lastSeenAtIso)) {
-    return `був(ла) в мережі сьогодні о ${time}`;
-  }
-
-  // not today => "08.04.2026 о 22:38"
-  const date = formatDateDDMMYYYY(lastSeenAtIso);
-  return `був(ла) в мережі ${date} о ${time}`;
-}
-
-function isMine(m) {
-  return m.sender_id === authStore.user?.id;
 }
 
 function formatTimeParts(iso) {
@@ -351,6 +358,38 @@ function formatTimeParts(iso) {
   }).format(d);
 
   return { time, date };
+}
+
+function formatLastSeenText(lastSeenAtIso) {
+  if (!lastSeenAtIso) return 'був(ла) в мережі давно';
+  const time = formatTimeParts(lastSeenAtIso).time;
+  if (isSameDayInTz(lastSeenAtIso)) return `був(ла) в мережі сьогодні о ${time}`;
+  const date = formatTimeParts(lastSeenAtIso).date;
+  return `був(ла) в мережі ${date} о ${time}`;
+}
+
+function formatYMD(iso) {
+  if (!iso) return '';
+  return formatYMDInTz(new Date(iso), CHAT_TIME_ZONE);
+}
+
+function shouldShowDateDivider(list, idx) {
+  if (!list || !list.length) return false;
+  if (idx === 0) return true;
+  return formatYMD(list[idx - 1]?.created_at) !== formatYMD(list[idx]?.created_at);
+}
+
+function formatDividerDate(iso) {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('uk-UA', {
+    timeZone: CHAT_TIME_ZONE,
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(iso)).toUpperCase();
+}
+
+function isMine(m) {
+  return m.sender_id === authStore.user?.id;
 }
 
 const canSend = computed(() => {
@@ -381,14 +420,12 @@ function onFileSelected(e) {
   const allowedExt = new Set(['jpg', 'jpeg', 'png', 'webp']);
   const ext = (file.name.split('.').pop() || '').toLowerCase();
 
-  // Только изображения
   if (!allowedMime.has(file.type) || !allowedExt.has(ext)) {
     showError('Можна прикріпити лише зображення (JPG, PNG або WEBP).');
     resetSelectedFile(e);
     return;
   }
 
-  // 4MB
   if (file.size > 4 * 1024 * 1024) {
     showError('Максимальний розмір фото: 4 MB');
     resetSelectedFile(e);
@@ -398,12 +435,10 @@ function onFileSelected(e) {
   selectedFile.value = file;
 }
 
-// presence ping loop while drawer open
 let pingTimer = null;
 
 async function startPresencePing() {
   if (pingTimer) return;
-
   await messageStore.pingPresence().catch(() => {});
   await messageStore.refreshCurrentConversation().catch(() => {});
 
@@ -413,13 +448,17 @@ async function startPresencePing() {
   }, 60 * 1000);
 }
 
+function stopPresencePing() {
+  if (pingTimer) window.clearInterval(pingTimer);
+  pingTimer = null;
+}
+
 async function onSend() {
   if (!canSend.value) return;
 
   const conversationId = messageStore.currentConversation?.id;
   if (!conversationId) return;
 
-  // (дублируем причину canSend для случая Enter/программного вызова)
   if (!messageStore.currentProductContextId) {
     showError('Неможливо відправити повідомлення без товару');
     return;
@@ -439,11 +478,8 @@ async function onSend() {
     await scrollToBottom({ force: true });
     updateIsNearBottom();
 
-    // 2) если было фото — дождёмся @load у v-img и доскроллим ещё раз до конца
     if (hadImage) {
       pendingScrollToBottomForImages.value = true;
-
-      // fallback: даже если @load не сработает (кеш/ошибка) — через 300мс всё равно доскроллим
       setTimeout(() => {
         if (pendingScrollToBottomForImages.value) {
           scheduleScrollToBottomForce();
@@ -451,21 +487,57 @@ async function onSend() {
         }
       }, 300);
     }
-  } catch (e) {
+  } catch {
     showError('Не вдалося надіслати повідомлення');
   }
 }
 
-function stopPresencePing() {
-  if (pingTimer) window.clearInterval(pingTimer);
-  pingTimer = null;
+async function deleteMyMessage(messageId) {
+  try {
+    await apiClient.getCsrfCookie();
+    await apiClient.post(`/messages/${messageId}/delete-by-author`);
+
+    const conversationId = messageStore.currentConversation?.id;
+    if (conversationId) {
+      await messageStore.loadMessages(conversationId);
+      await nextTick();
+      await scrollToBottom({ force: false });
+    }
+  } catch {
+    showError('Не вдалося видалити повідомлення');
+  }
+}
+
+const reportDialog = ref({
+  open: false,
+  loading: false,
+});
+
+function openReportDialog() {
+  reportDialog.value.open = true;
+}
+
+async function confirmReport() {
+  const conversationId = messageStore.currentConversation?.id;
+  if (!conversationId) return;
+
+  reportDialog.value.loading = true;
+  try {
+    await apiClient.getCsrfCookie();
+    await apiClient.post(`/conversations/${conversationId}/report`);
+    reportDialog.value.open = false;
+  } catch {
+    showError('Не вдалося надіслати скаргу');
+  } finally {
+    reportDialog.value.loading = false;
+  }
 }
 
 watch(
   () => messageStore.drawerOpen,
   async (open) => {
     if (open) {
-      didInitialScroll = false;   // чтобы при каждом открытии 1 раз скроллить вниз
+      didInitialScroll = false;
       await nextTick();
       updateIsNearBottom();
       startPresencePing();
@@ -481,7 +553,6 @@ watch(
     if (loading) return;
     if (!messageStore.drawerOpen) return;
 
-    // при открытии чата один раз прокручиваем вниз после первой загрузки
     if (!didInitialScroll) {
       didInitialScroll = true;
       await scrollToBottom({ force: true });
@@ -501,90 +572,112 @@ onUnmounted(() => stopPresencePing());
 </script>
 
 <style scoped>
+.chat-body {
+  height: calc(100% - 210px);
+  overflow: auto;
+}
 
-    .chat-body {
-      height: calc(100% - 210px);
-      overflow: auto;
-    }
+.message-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+.message-row.mine {
+  justify-content: flex-end;
+}
 
-    .message-row {
-      display: flex;
-      margin-bottom: 10px;
-    }
+.date-divider {
+  position: relative;
+  text-align: center;
+  margin: 14px 0;
+  color: rgba(160, 174, 192, 0.95);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+.date-divider::before,
+.date-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 42%;
+  height: 1px;
+  background: rgba(127, 127, 127, 0.28);
+}
+.date-divider::before { left: 0; }
+.date-divider::after { right: 0; }
+.date-divider span { padding: 0 8px; }
 
-    .message-row.mine {
-      justify-content: flex-end;
-    }
+.bubble {
+  max-width: 80%;
+  background: #f3f4f6;
+  color: #111827;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  position: relative;
+}
+.bubble--with-actions {
+  padding-right: 34px;
+}
+.bubble-actions {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  z-index: 2;
+}
 
-    .bubble {
-      max-width: 80%;
-      background: #f3f4f6;
-      color: #111827;
-      border-radius: 12px;
-      padding: 10px 12px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    }
+.message-row.mine .bubble {
+  background: #1976D2;
+  color: #ffffff;
+}
 
-    .message-row.mine .bubble {
-      background: #1976D2;        /* синий */
-      color: #ffffff;
-    }
+.images .v-img {
+  background: white;
+}
 
-    .images .v-img {
-      background: white;
-    }
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  width: 100%;
+}
+.message-row:not(.mine) .meta {
+  justify-content: flex-start;
+}
+.message-row.mine .meta {
+  justify-content: flex-end;
+  opacity: 0.9;
+  color: rgba(255,255,255,0.85);
+}
 
-    /* meta как строка */
-    .meta {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      opacity: 0.75;
-      white-space: nowrap;
+.meta-time { font-weight: 600; }
+.meta-date { font-weight: 400; opacity: 0.9; }
+.meta-sep  { opacity: 0.6; }
 
-      /* ✅ занимает всю ширину bubble, чтобы можно было выравнивать */
-      width: 100%;
-    }
+.meta-status {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+}
 
-    /* ✅ для продавца (не mine) — по левому краю */
-    .message-row:not(.mine) .meta {
-      justify-content: flex-start;
-    }
+.deleted-message {
+  font-style: italic;
+  opacity: 0.78;
+}
 
-    /* ✅ для покупателя (mine) — по правому краю */
-    .message-row.mine .meta {
-      justify-content: flex-end;
-    }
+.d-none {
+  display: none;
+}
 
-    /* стили частей */
-    .meta-time { font-weight: 600; }
-    .meta-date { font-weight: 400; opacity: 0.9; }
-    .meta-sep  { opacity: 0.6; }
+.seller-status--online {
+  color: #16a34a;
+  font-weight: 600;
+}
 
-    .meta-status {
-      margin-left: 6px;
-      display: inline-flex;
-      align-items: center;
-    }
-
-    /* если у "моих" сообщений темный фон и белый текст */
-    .message-row.mine .meta {
-      opacity: 0.9;
-      color: rgba(255,255,255,0.85);
-    }
-
-    .d-none { 
-      display: none; 
-    }
-
-    .seller-status--online {
-      color: #16a34a; /* green-600 */
-      font-weight: 600;
-    }
-
-    .chat-image {
-      cursor: zoom-in;
-    }
-
+.chat-image {
+  cursor: zoom-in;
+}
 </style>

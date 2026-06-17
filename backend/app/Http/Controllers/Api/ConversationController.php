@@ -33,7 +33,7 @@ class ConversationController extends Controller
         $conversation->load(
             'seller:id,name,last_seen_at',
             'buyer:id,name,last_seen_at',
-            'product:id,title,slug,image_url,image_variants'
+            'product:id,title,slug,image_url,image_variants,moderation_status,is_paid,is_visible,deleted_by_user,deleted_by_admin'
         );
 
         return response()->json($conversation);
@@ -53,7 +53,7 @@ class ConversationController extends Controller
             ->with([
                 'seller:id,name,last_seen_at',
                 'buyer:id,name,last_seen_at',
-                'product:id,title,slug,image_url,image_variants',
+                'product:id,title,slug,image_url,image_variants,moderation_status,is_paid,is_visible,deleted_by_user,deleted_by_admin',
             ])
             ->withCount([
                 'messages as unread_count' => function ($q) use ($user) {
@@ -92,7 +92,7 @@ class ConversationController extends Controller
         $conversation->load(
             'seller:id,name,last_seen_at',
             'buyer:id,name,last_seen_at',
-            'product:id,title,slug,image_url,image_variants'
+            'product:id,title,slug,image_url,image_variants,moderation_status,is_paid,is_visible,deleted_by_user,deleted_by_admin'
         );
 
         return response()->json($conversation);

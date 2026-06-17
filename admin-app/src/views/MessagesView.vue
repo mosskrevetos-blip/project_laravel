@@ -31,17 +31,36 @@
             >
               <template #prepend>
                 <v-avatar size="40" rounded="sm">
-                  <v-img v-if="getProductThumb(c)" :src="getProductThumb(c)" cover />
+                  <v-img
+                    v-if="getProductThumb(c)"
+                    :src="getProductThumb(c)"
+                    cover
+                    :class="{ 'product-thumb--inactive': !isProductActive(c.product) }"
+                  />
                   <v-icon v-else>mdi-image-outline</v-icon>
                 </v-avatar>
               </template>
 
               <v-list-item-title class="d-flex align-center justify-space-between">
+                
                 <span class="d-flex align-center flex-wrap ga-1">
-                  <span>{{ getCounterpartyName(c) }}</span>
+                  <template v-if="isModerationAllTab">
+                    <span>{{ c?.buyer?.name || `Покупець #${c?.buyer_id}` }}</span>
+                    <span class="between-arrow">↔</span>
+                    <span>{{ c?.seller?.name || `Продавець #${c?.seller_id}` }}</span>
+                  </template>
+
+                  <template v-else>
+                    <span>{{ getCounterpartyName(c) }}</span>
+                  </template>
+
                   <span class="text-grey">·</span>
+
+                  <span v-if="!isProductActive(c.product)" class="inactive-badge">НЕАКТИВНО</span>
+
                   <a
                     class="product-link"
+                    :class="{ 'product-link--inactive': !isProductActive(c.product) }"
                     :href="getPublicProductUrl(c)"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -138,6 +157,7 @@
                                   max-width="240"
                                   class="mb-2 rounded chat-image"
                                   cover
+                                  @click="openImagePreview(img.url)"
                                 />
                               </div>
                             </template>
@@ -227,6 +247,27 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="imagePreview.open" max-width="1100">
+      <v-card class="bg-black">
+        <v-toolbar density="comfortable" color="black">
+          <v-spacer />
+          <v-btn icon variant="text" @click="closeImagePreview">
+            <v-icon color="white">mdi-close</v-icon>
+          </v-btn>
+        </v-toolbar>
+
+        <v-card-text class="d-flex justify-center align-center pa-2" style="min-height: 60vh;">
+          <v-img
+            v-if="imagePreview.url"
+            :src="imagePreview.url"
+            contain
+            max-height="80vh"
+            class="w-100"
+          />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -266,6 +307,11 @@ const reportDialog = ref({
   open: false,
   loading: false,
   conversation: null,
+});
+
+const imagePreview = ref({
+  open: false,
+  url: '',
 });
 
 const isModerationAllTab = computed(() => isAdminOrManager.value && activeTab.value === 'all');
@@ -381,13 +427,9 @@ function getCounterpartyName(c) {
 }
 
 function isMine(m, conversation) {
-  // В модераторской вкладке показываем:
-  // справа — сообщения продавца, слева — покупателя
   if (isModerationAllTab.value) {
     return m.sender_id === conversation?.seller_id;
   }
-
-  // В личной вкладке и для обычных пользователей — как раньше
   return m.sender_id === authStore.user?.id;
 }
 
@@ -424,6 +466,19 @@ function getProductThumb(c) {
   if (typeof p.image_url === 'string' && p.image_url.trim()) return normalizeImageUrl(p.image_url);
 
   return '';
+}
+
+// функція активності товару
+function isProductActive(product) {
+  if (!product) return false;
+
+  const moderationOk = product.moderation_status === 'approved';
+  const isPaidOk = Number(product.is_paid) === 1;
+  const isVisibleOk = Number(product.is_visible) === 1;
+  const notDeletedByUser = Number(product.deleted_by_user) === 0;
+  const notDeletedByAdmin = Number(product.deleted_by_admin) === 0;
+
+  return moderationOk && isPaidOk && isVisibleOk && notDeletedByUser && notDeletedByAdmin;
 }
 
 async function loadConversations() {
@@ -547,7 +602,11 @@ function observeAndMarkRead(conversationId) {
 async function markRead(conversationId, messageIds = null) {
   const payload = Array.isArray(messageIds) && messageIds.length ? { message_ids: messageIds } : {};
   await apiClient.getCsrfCookie();
-  const { data } = await apiClient.post(`/conversations/${conversationId}/read`, payload);
+
+  const params = {};
+  if (isModerationAllTab.value) params.scope = 'all';
+
+  const { data } = await apiClient.post(`/conversations/${conversationId}/read`, payload, { params });
   return data;
 }
 
@@ -597,12 +656,19 @@ async function sendMessage(conversation) {
 
     const form = new FormData();
     if (body) form.append('body', body);
-    form.append('product_id', String(conversation.product_id));
+
+    const productId = conversation?.product_id ?? conversation?.product?.id;
+    if (productId) {
+      form.append('product_id', String(productId));
+    }
+
     if (file) form.append('image', file);
 
-    const { data: created } = await apiClient.post(`/conversations/${conversationId}/messages`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const { data: created } = await apiClient.post(
+      `/conversations/${conversationId}/messages`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
 
     const current = messagesMap.value[conversationId] || [];
     messagesMap.value = { ...messagesMap.value, [conversationId]: [...current, created] };
@@ -615,8 +681,9 @@ async function sendMessage(conversation) {
     if (bodyEl) bodyEl.scrollTo({ top: bodyEl.scrollHeight, behavior: 'smooth' });
 
     await loadConversations();
-  } catch {
-    alert('Не вдалося надіслати повідомлення');
+  } catch (e) {
+    const msg = e?.response?.data?.message || 'Не вдалося надіслати повідомлення';
+    alert(msg);
   } finally {
     sendingMap.value[conversationId] = false;
   }
@@ -658,6 +725,17 @@ async function confirmReport() {
   } finally {
     reportDialog.value.loading = false;
   }
+}
+
+function openImagePreview(url) {
+  if (!url) return;
+  imagePreview.value.url = url;
+  imagePreview.value.open = true;
+}
+
+function closeImagePreview() {
+  imagePreview.value.open = false;
+  imagePreview.value.url = '';
 }
 
 onMounted(async () => {
@@ -765,12 +843,9 @@ onMounted(async () => {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   position: relative;
 }
-
-/* когда есть кнопка меню в правом верхнем углу */
 .bubble--with-actions {
-  padding-right: 34px; /* место под троеточие */
+  padding-right: 34px;
 }
-
 .bubble-actions {
   position: absolute;
   right: 4px;
@@ -845,5 +920,45 @@ onMounted(async () => {
 .list-move-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+.product-inactive-label {
+  color: #ef5350;
+  font-weight: 700;
+}
+
+.product-link--inactive {
+  opacity: 0.95;
+}
+
+.product-thumb--inactive {
+  filter: grayscale(100%) brightness(1.18) contrast(0.85);
+  opacity: 0.72;
+}
+
+.inactive-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #989ca3;   /* светло-серый фон */
+  color: #232a35;        /* темно-серый текст */
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.product-link--inactive {
+  opacity: 0.9;
+}
+
+.between-arrow {
+  display: inline-block;
+  position: relative;
+  top: -2px;
+  margin: 0 4px;
+  font-weight: 700;
+  opacity: 0.9;
 }
 </style>

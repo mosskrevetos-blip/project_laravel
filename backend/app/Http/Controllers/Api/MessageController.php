@@ -81,20 +81,24 @@ class MessageController extends Controller
 
         $message = DB::transaction(function () use ($conversation, $user, $validated, $request) {
             $message = Message::create([
-                'conversation_id'  => $conversation->id,
-                'sender_id'        => $user->id,
-                'product_id'       => $validated['product_id'],
-                'body'             => isset($validated['body']) ? trim((string) $validated['body']) : null,
-                'deleted_by_user'  => false,
+                'conversation_id' => $conversation->id,
+                'sender_id'       => $user->id,
+                'product_id'      => $validated['product_id'],
+                'body'            => isset($validated['body']) ? trim((string) $validated['body']) : null,
+                'deleted_by_user' => false,
             ]);
 
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
-                $url = $this->storeChatImageAsWebp($conversation->id, $message->id, $file);
+
+                // ВАЖНО: возвращаем path/mime/size, а не url
+                $stored = $this->storeChatImageAsWebp($conversation->id, $message->id, $file);
 
                 MessageImage::create([
                     'message_id' => $message->id,
-                    'url'        => $url,
+                    'path'       => $stored['path'],
+                    'mime'       => $stored['mime'],
+                    'size'       => $stored['size'],
                 ]);
             }
 
@@ -111,14 +115,13 @@ class MessageController extends Controller
 
     /**
      * Mark messages as read
-     * IMPORTANT:
-     * - Admin/manager in scope=all can OPEN chats, but should NOT change read status.
-     *   So for admin/manager we return ok without updates.
+     * - scope=all for admin/manager: do not change read statuses
      */
     public function markRead(Request $request, Conversation $conversation)
     {
         $user = $request->user();
         $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
+        $scope = (string) $request->query('scope', 'my');
 
         if (
             !$isAdminOrManager &&
@@ -128,12 +131,11 @@ class MessageController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        // Do not change read statuses for admin/manager moderation view
-        if ($isAdminOrManager) {
+        if ($isAdminOrManager && $scope === 'all') {
             return response()->json([
                 'ok' => true,
                 'updated' => 0,
-                'skipped' => 'admin_or_manager_view',
+                'skipped' => 'moderation_all_scope',
             ]);
         }
 
@@ -186,11 +188,11 @@ class MessageController extends Controller
 
     /**
      * Save chat image as webp
+     * returns: ['path' => string, 'mime' => string, 'size' => int]
      */
-    protected function storeChatImageAsWebp(int $conversationId, int $messageId, $file): string
+    protected function storeChatImageAsWebp(int $conversationId, int $messageId, $file): array
     {
         $manager = new ImageManager(new Driver());
-
         $image = $manager->read($file->getPathname());
 
         $maxW = 1600;
@@ -202,10 +204,15 @@ class MessageController extends Controller
 
         $fileName = Str::uuid()->toString() . '.webp';
         $dir = "chat/{$conversationId}/{$messageId}";
-        $path = "{$dir}/{$fileName}";
+        $path = "{$dir}/{$fileName}"; // относительный путь в public disk
 
-        Storage::disk('public')->put($path, (string) $image->toWebp(82));
+        $binary = (string) $image->toWebp(82);
+        Storage::disk('public')->put($path, $binary);
 
-        return Storage::url($path); // e.g. /storage/chat/...
+        return [
+            'path' => $path,
+            'mime' => 'image/webp',
+            'size' => strlen($binary),
+        ];
     }
 }
