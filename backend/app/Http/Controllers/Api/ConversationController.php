@@ -59,7 +59,10 @@ class ConversationController extends Controller
                 'messages as unread_count' => function ($q) use ($user) {
                     $q->whereNull('read_at')
                       ->where('sender_id', '!=', $user->id);
-                }
+                },
+                // ВАЖНО: чтобы в списке работала подсветка диалогов с жалобами
+                'reports as reports_total_count',
+                'openReports as reports_open_count',
             ]);
 
         if ($scope === 'all' && $isAdminOrManager) {
@@ -89,33 +92,55 @@ class ConversationController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        $conversation->load(
+        $conversation->load([
+            'buyer:id,name',
             'seller:id,name,last_seen_at',
-            'buyer:id,name,last_seen_at',
-            'product:id,title,slug,image_url,image_variants,moderation_status,is_paid,is_visible,deleted_by_user,deleted_by_admin'
-        );
+            'product:id,title,slug,image_url,image_variants',
+        ]);
 
-        return response()->json($conversation);
-    }
+        // Единый источник истины: conversation_reports
+        $reportsBase = \App\Models\ConversationReport::query()
+            ->where('conversation_id', $conversation->id);
 
-    // report conversation
-    public function report(Request $request, Conversation $conversation)
-    {
-        $user = $request->user();
+        $reportsTotal = (clone $reportsBase)->count();
+        $reportsOpen = (clone $reportsBase)->where('status', 'open')->count();
 
-        if ($conversation->buyer_id !== $user->id && $conversation->seller_id !== $user->id) {
-            // при желании можно разрешить admin/manager жалобу тоже:
-            // if (!($user->hasRole('admin') || $user->hasRole('manager'))) { ... }
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        $conversation->is_reported = true;
-        $conversation->save();
+        $lastReport = \App\Models\ConversationReport::query()
+            ->where('conversation_id', $conversation->id)
+            ->with(['reporter:id,name', 'resolver:id,name'])
+            ->latest('id')
+            ->first();
 
         return response()->json([
-            'ok' => true,
-            'conversation_id' => $conversation->id,
-            'is_reported' => (bool) $conversation->is_reported,
+            'id' => $conversation->id,
+            'buyer_id' => $conversation->buyer_id,
+            'seller_id' => $conversation->seller_id,
+            'product_id' => $conversation->product_id,
+
+            'buyer' => $conversation->buyer,
+            'seller' => $conversation->seller,
+            'product' => $conversation->product,
+
+            'reports_total_count' => $reportsTotal,
+            'reports_open_count' => $reportsOpen,
+            'has_reports' => $reportsTotal > 0,
+            'has_open_reports' => $reportsOpen > 0,
+
+            'last_report' => $lastReport ? [
+                'id' => $lastReport->id,
+                'status' => $lastReport->status,
+                'reason' => $lastReport->reason,
+                'created_at' => $lastReport->created_at,
+                'reporter' => $lastReport->reporter ? [
+                    'id' => $lastReport->reporter->id,
+                    'name' => $lastReport->reporter->name,
+                ] : null,
+                'resolved_at' => $lastReport->resolved_at,
+                'resolver' => $lastReport->resolver ? [
+                    'id' => $lastReport->resolver->id,
+                    'name' => $lastReport->resolver->name,
+                ] : null,
+            ] : null,
         ]);
     }
 }

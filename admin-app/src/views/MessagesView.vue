@@ -23,9 +23,8 @@
             <v-list-item
               class="conversation-row"
               :class="{
-                'conversation-row--reported': c.is_reported,
-                'conversation-row--unread-dark': !c.is_reported && showUnreadHighlight(c) && isDark,
-                'conversation-row--unread-light': !c.is_reported && showUnreadHighlight(c) && !isDark
+                'conversation-row--unread-dark': showUnreadHighlight(c) && isDark,
+                'conversation-row--unread-light': showUnreadHighlight(c) && !isDark
               }"
               @click="toggleConversation(c)"
             >
@@ -42,7 +41,6 @@
               </template>
 
               <v-list-item-title class="d-flex align-center justify-space-between">
-                
                 <span class="d-flex align-center flex-wrap ga-1">
                   <template v-if="isModerationAllTab">
                     <span>{{ c?.buyer?.name || `Покупець #${c?.buyer_id}` }}</span>
@@ -71,6 +69,42 @@
                 </span>
 
                 <div class="d-flex align-center ga-2">
+                  <v-btn
+                    v-if="isModerationAllTab && hasOpenReports(c)"
+                    size="x-small"
+                    color="red-darken-2"
+                    variant="flat"
+                    class="report-badge-btn"
+                    @click.stop="openReportsModerationDialog(c)"
+                  >
+                    Скарга
+                  </v-btn>
+
+                  <span
+                    v-else-if="!isModerationAllTab && hasOpenReports(c)"
+                    class="report-badge"
+                  >
+                    Скарга
+                  </span>
+
+                  <v-btn
+                    v-else-if="isModerationAllTab && hasOnlyResolvedReports(c)"
+                    size="x-small"
+                    color="success"
+                    variant="flat"
+                    class="report-badge-btn report-badge-btn--resolved"
+                    @click.stop="openReportsModerationDialog(c)"
+                  >
+                    Скарга оброблена
+                  </v-btn>
+
+                  <span
+                    v-else-if="!isModerationAllTab && hasOnlyResolvedReports(c)"
+                    class="report-badge report-badge--resolved"
+                  >
+                    Скарга оброблена
+                  </span>
+
                   <v-tooltip text="Поскаржитися" location="top">
                     <template #activator="{ props }">
                       <v-btn
@@ -143,24 +177,23 @@
                               </v-menu>
                             </div>
 
-                            <template v-if="m.deleted_by_user">
-                              <div class="deleted-message">Повідомлення видалено</div>
-                            </template>
+                            <div v-if="m.deleted_by_user" class="deleted-message deleted-message--soft">
+                              Повідомлення видалено користувачем
+                            </div>
 
-                            <template v-else>
-                              <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
-                              <div v-if="m.images?.length" class="images">
-                                <v-img
-                                  v-for="img in m.images"
-                                  :key="img.id"
-                                  :src="img.url"
-                                  max-width="240"
-                                  class="mb-2 rounded chat-image"
-                                  cover
-                                  @click="openImagePreview(img.url)"
-                                />
-                              </div>
-                            </template>
+                            <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
+
+                            <div v-if="m.images?.length" class="images">
+                              <v-img
+                                v-for="img in m.images"
+                                :key="img.id"
+                                :src="img.url"
+                                max-width="240"
+                                class="mb-2 rounded chat-image"
+                                cover
+                                @click="openImagePreview(img.url)"
+                              />
+                            </div>
 
                             <div class="meta mt-1">
                               <span class="meta-time">{{ formatOnlyTime(m.created_at) }}</span>
@@ -234,16 +267,170 @@
       </v-list>
     </v-card>
 
-    <v-dialog v-model="reportDialog.open" max-width="460">
+    <v-dialog v-model="reportDialog.open" max-width="520">
       <v-card>
         <v-card-title class="text-h6">Підтвердити скаргу</v-card-title>
-        <v-card-text>Ви впевнені, що хочете поскаржитися на цей діалог?</v-card-text>
+        <v-card-text>
+          <div class="mb-3">Опишіть, будь ласка, причину скарги:</div>
+          <v-textarea
+            v-model="reportDialog.reason"
+            label="Причина скарги"
+            rows="3"
+            auto-grow
+            variant="outlined"
+            density="compact"
+            maxlength="2000"
+            counter
+          />
+        </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="reportDialog.open = false">Скасувати</v-btn>
+          <v-btn variant="text" @click="closeReportDialog">Скасувати</v-btn>
           <v-btn color="red-darken-2" variant="flat" :loading="reportDialog.loading" @click="confirmReport">
             Поскаржитися
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="reportsModerationDialog.open" max-width="1100">
+      <v-card>
+        <v-card-title class="d-flex align-center justify-space-between">
+          <span class="text-h6">Історія скарг по діалогу</span>
+          <div class="text-caption text-grey">
+            Усього: {{ reportsModerationDialog.total_count }} · Відкритих: {{ reportsModerationDialog.open_count }}
+          </div>
+        </v-card-title>
+
+        <v-divider />
+
+        <v-card-text>
+          <div v-if="reportsModerationDialog.loading" class="py-4">
+            <v-skeleton-loader type="table" />
+          </div>
+
+          <template v-else>
+            <v-table density="comfortable">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Від кого</th>
+                  <th>Причина</th>
+                  <th>Статус</th>
+                  <th>Обробив</th>
+                  <th>Оброблено</th>
+                  <th>Коментар модератора</th>
+                  <th>Дія</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in reportsModerationDialog.items" :key="r.id">
+                  <td>{{ formatDateTime(r.created_at) }}</td>
+                  <td>{{ r.reporter?.name || `User #${r.reporter_id}` }}</td>
+                  <td style="max-width: 240px;"><div style="white-space: pre-wrap;">{{ r.reason || '—' }}</div></td>
+                  <td>
+                    <v-chip size="x-small" :color="r.status === 'resolved' ? 'success' : 'warning'" variant="tonal">
+                      {{ r.status === 'resolved' ? 'Оброблено' : 'Відкрита' }}
+                    </v-chip>
+                  </td>
+                  <td>{{ r.resolver?.name || '—' }}</td>
+                  <td>{{ r.resolved_at ? formatDateTime(r.resolved_at) : '—' }}</td>
+                  <td style="max-width: 260px;"><div style="white-space: pre-wrap;">{{ r.resolution_note || '—' }}</div></td>
+                  <td>
+                    <template v-if="r.status !== 'resolved'">
+                      <v-btn
+                        size="x-small"
+                        color="success"
+                        variant="tonal"
+                        :loading="resolvePanel.loading && resolvePanel.report?.id === r.id"
+                        @click="openResolvePanel(r)"
+                      >
+                        Обробити
+                      </v-btn>
+                    </template>
+                    <span v-else class="text-grey">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+
+            <div v-if="!reportsModerationDialog.items.length" class="text-grey py-3">
+              Скарг поки немає
+            </div>
+
+            <template v-if="resolvePanel.open">
+              <v-divider class="my-4" />
+
+              <div class="text-subtitle-1 mb-2">Повідомлення діалогу</div>
+              <v-sheet rounded border class="pa-2 mb-4 reports-chat-preview">
+                <div v-if="resolvePanel.chatLoading" class="py-3">
+                  <v-skeleton-loader type="paragraph" />
+                </div>
+                <template v-else>
+                  <div
+                    v-for="m in resolvePanel.chatMessages"
+                    :key="`rp-msg-${m.id}`"
+                    class="reports-chat-row"
+                    :class="{ 'reports-chat-row--mine': isResolveChatMine(m) }"
+                  >
+                    <div class="reports-chat-bubble">
+                      <div class="reports-chat-meta">
+                        <strong>{{ m.sender_id === resolvePanel.conversation?.seller_id ? 'Продавець' : 'Покупець' }}</strong>
+                        · {{ formatDateTime(m.created_at) }}
+                      </div>
+
+                      <div v-if="m.deleted_by_user" class="reports-chat-deleted">
+                        Повідомлення видалено користувачем
+                      </div>
+
+                      <div v-if="m.body" style="white-space: pre-wrap;">{{ m.body }}</div>
+
+                      <div v-if="m.images?.length" class="d-flex flex-wrap ga-2 mt-2">
+                        <v-img
+                          v-for="img in m.images"
+                          :key="`rp-img-${img.id}`"
+                          :src="img.url"
+                          width="110"
+                          height="80"
+                          cover
+                          class="rounded"
+                          @click="openImagePreview(img.url)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="!resolvePanel.chatMessages.length" class="text-grey py-2">
+                    Повідомлень у діалозі немає
+                  </div>
+                </template>
+              </v-sheet>
+
+              <div class="text-subtitle-2 mb-2">Відповідь адміністратора / менеджера</div>
+              <v-textarea
+                v-model="resolvePanel.resolutionNote"
+                label="Коментар при обробці скарги"
+                rows="3"
+                auto-grow
+                variant="outlined"
+                density="compact"
+                maxlength="2000"
+                counter
+              />
+
+              <div class="d-flex justify-end ga-2 mt-3">
+                <v-btn variant="text" @click="closeResolvePanel">Скасувати</v-btn>
+                <v-btn color="success" variant="flat" :loading="resolvePanel.loading" @click="confirmResolveFromPanel">
+                  Обробити
+                </v-btn>
+              </div>
+            </template>
+          </template>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeReportsModerationDialog">Закрити</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -268,6 +455,18 @@
         </v-card-text>
       </v-card>
     </v-dialog>
+
+    <v-snackbar
+      v-model="snackbar.open"
+      :color="snackbar.color"
+      :timeout="snackbar.timeout"
+      location="top right"
+    >
+      {{ snackbar.text }}
+      <template #actions>
+        <v-btn variant="text" @click="snackbar.open = false">Закрити</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -307,12 +506,46 @@ const reportDialog = ref({
   open: false,
   loading: false,
   conversation: null,
+  reason: '',
+});
+
+const reportsModerationDialog = ref({
+  open: false,
+  loading: false,
+  conversationId: null,
+  items: [],
+  total_count: 0,
+  open_count: 0,
+});
+
+const resolvePanel = ref({
+  open: false,
+  loading: false,
+  chatLoading: false,
+  report: null,
+  conversation: null,
+  chatMessages: [],
+  resolutionNote: '',
 });
 
 const imagePreview = ref({
   open: false,
   url: '',
 });
+
+const snackbar = ref({
+  open: false,
+  text: '',
+  color: 'info',
+  timeout: 3200,
+});
+
+function showSnackbar(text, color = 'info', timeout = 3200) {
+  snackbar.value.text = text;
+  snackbar.value.color = color;
+  snackbar.value.timeout = timeout;
+  snackbar.value.open = true;
+}
 
 const isModerationAllTab = computed(() => isAdminOrManager.value && activeTab.value === 'all');
 
@@ -335,7 +568,56 @@ function setFileInputRef(conversationId) {
   };
 }
 
+function reportsOpenCount(c) {
+  return Number(c?.reports_open_count || 0);
+}
+
+function reportsTotalCount(c) {
+  return Number(c?.reports_total_count || 0);
+}
+
+function hasOpenReports(c) {
+  return reportsOpenCount(c) > 0;
+}
+
+function hasOnlyResolvedReports(c) {
+  return reportsTotalCount(c) > 0 && reportsOpenCount(c) === 0;
+}
+
+function isResolveChatMine(m) {
+  return m.sender_id === resolvePanel.value.conversation?.seller_id;
+}
+
 const baseSortedConversations = computed(() => {
+  // Вкладка "Всі повідомлення" (модерация): приоритет по жалобам
+  if (isModerationAllTab.value) {
+    const rank = (c) => {
+      const open = reportsOpenCount(c);      // не обработанные
+      const total = reportsTotalCount(c);    // все жалобы
+
+      if (open > 0) return 0;  // 1) вверху: есть открытые жалобы
+      if (total > 0) return 1; // 2) далее: жалобы есть, но все обработаны
+      return 2;                // 3) внизу: жалоб нет
+    };
+
+    return [...conversations.value].sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+
+      // внутри группы: непрочитанные выше
+      const aUnread = showUnreadHighlight(a) ? 1 : 0;
+      const bUnread = showUnreadHighlight(b) ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+
+      // затем по дате обновления
+      const aTs = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bTs = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bTs - aTs;
+    });
+  }
+
+  // Вкладка "Мої повідомлення": стара логика (приоритет непрочитанных)
   return [...conversations.value].sort((a, b) => {
     const aUnread = showUnreadHighlight(a) ? 1 : 0;
     const bUnread = showUnreadHighlight(b) ? 1 : 0;
@@ -468,7 +750,6 @@ function getProductThumb(c) {
   return '';
 }
 
-// функція активності товару
 function isProductActive(product) {
   if (!product) return false;
 
@@ -500,9 +781,10 @@ async function loadConversations() {
 async function loadMessages(conversationId) {
   loadingMessagesMap.value[conversationId] = true;
   try {
-    const { data } = await apiClient.get(`/conversations/${conversationId}/messages`, {
-      params: { per_page: 100 },
-    });
+    const params = { per_page: 100 };
+    if (isModerationAllTab.value) params.scope = 'all';
+
+    const { data } = await apiClient.get(`/conversations/${conversationId}/messages`, { params });
     const items = (data?.data || []).slice().reverse();
     messagesMap.value = { ...messagesMap.value, [conversationId]: items };
   } finally {
@@ -623,13 +905,13 @@ function onFileSelected(conversationId, e) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
 
   if (!allowedMime.has(file.type) || !allowedExt.has(ext)) {
-    alert('Можна прикріпити лише зображення (JPG, PNG або WEBP).');
+    showSnackbar('Можна прикріпити лише зображення (JPG, PNG або WEBP).', 'warning');
     e.target.value = '';
     return;
   }
 
   if (file.size > 4 * 1024 * 1024) {
-    alert('Максимальний розмір фото: 4 MB');
+    showSnackbar('Максимальний розмір фото: 4 MB', 'warning');
     e.target.value = '';
     return;
   }
@@ -683,7 +965,7 @@ async function sendMessage(conversation) {
     await loadConversations();
   } catch (e) {
     const msg = e?.response?.data?.message || 'Не вдалося надіслати повідомлення';
-    alert(msg);
+    showSnackbar(msg, 'error', 4200);
   } finally {
     sendingMap.value[conversationId] = false;
   }
@@ -696,13 +978,20 @@ async function deleteMyMessage(messageId, conversationId) {
     await loadMessages(conversationId);
     await loadConversations();
   } catch {
-    alert('Не вдалося видалити повідомлення');
+    showSnackbar('Не вдалося видалити повідомлення', 'error', 4200);
   }
 }
 
 function openReportDialog(c) {
   reportDialog.value.conversation = c;
+  reportDialog.value.reason = '';
   reportDialog.value.open = true;
+}
+
+function closeReportDialog() {
+  reportDialog.value.open = false;
+  reportDialog.value.conversation = null;
+  reportDialog.value.reason = '';
 }
 
 async function confirmReport() {
@@ -712,18 +1001,114 @@ async function confirmReport() {
   reportDialog.value.loading = true;
   try {
     await apiClient.getCsrfCookie();
-    await apiClient.post(`/conversations/${c.id}/report`);
+    await apiClient.post(`/conversations/${c.id}/report`, {
+      reason: reportDialog.value.reason?.trim() || null,
+    });
 
-    conversations.value = conversations.value.map(x =>
-      x.id === c.id ? { ...x, is_reported: true } : x
-    );
+    await loadConversations();
+    closeReportDialog();
+    showSnackbar('Скаргу успішно надіслано', 'success');
+  } catch (e) {
+    const status = e?.response?.status;
+    const data = e?.response?.data || {};
 
-    reportDialog.value.open = false;
-    reportDialog.value.conversation = null;
-  } catch {
-    alert('Не вдалося надіслати скаргу');
+    if (status === 409 && data?.already_exists) {
+      showSnackbar(data?.message || 'У вас вже є відкрита скарга по цьому діалогу', 'warning', 4200);
+      closeReportDialog();
+      return;
+    }
+
+    showSnackbar(data?.message || 'Не вдалося надіслати скаргу', 'error', 4200);
   } finally {
     reportDialog.value.loading = false;
+  }
+}
+
+async function openReportsModerationDialog(c) {
+  if (!c?.id) return;
+  reportsModerationDialog.value.open = true;
+  reportsModerationDialog.value.loading = true;
+  reportsModerationDialog.value.conversationId = c.id;
+
+  try {
+    const { data } = await apiClient.get(`/conversations/${c.id}/reports`);
+    reportsModerationDialog.value.items = Array.isArray(data?.items) ? data.items : [];
+    reportsModerationDialog.value.total_count = Number(data?.total_count || 0);
+    reportsModerationDialog.value.open_count = Number(data?.open_count || 0);
+  } catch {
+    showSnackbar('Не вдалося завантажити історію скарг', 'error', 4200);
+  } finally {
+    reportsModerationDialog.value.loading = false;
+  }
+}
+
+function closeReportsModerationDialog() {
+  reportsModerationDialog.value.open = false;
+  reportsModerationDialog.value.loading = false;
+  reportsModerationDialog.value.conversationId = null;
+  reportsModerationDialog.value.items = [];
+  reportsModerationDialog.value.total_count = 0;
+  reportsModerationDialog.value.open_count = 0;
+  closeResolvePanel();
+}
+
+async function openResolvePanel(report) {
+  resolvePanel.value.open = true;
+  resolvePanel.value.report = report;
+  resolvePanel.value.resolutionNote = report?.resolution_note || '';
+  resolvePanel.value.chatLoading = true;
+  resolvePanel.value.chatMessages = [];
+
+  const conversationId = reportsModerationDialog.value.conversationId;
+  const conv = conversations.value.find(x => x.id === conversationId) || null;
+  resolvePanel.value.conversation = conv;
+
+  try {
+    const { data } = await apiClient.get(`/conversations/${conversationId}/messages`, {
+      params: { per_page: 100, scope: 'all' },
+    });
+    resolvePanel.value.chatMessages = (data?.data || []).slice().reverse();
+  } catch {
+    showSnackbar('Не вдалося завантажити повідомлення діалогу', 'error', 4200);
+  } finally {
+    resolvePanel.value.chatLoading = false;
+  }
+}
+
+function closeResolvePanel() {
+  resolvePanel.value.open = false;
+  resolvePanel.value.loading = false;
+  resolvePanel.value.chatLoading = false;
+  resolvePanel.value.report = null;
+  resolvePanel.value.conversation = null;
+  resolvePanel.value.chatMessages = [];
+  resolvePanel.value.resolutionNote = '';
+}
+
+async function confirmResolveFromPanel() {
+  const report = resolvePanel.value.report;
+  if (!report?.id) return;
+
+  resolvePanel.value.loading = true;
+  try {
+    await apiClient.getCsrfCookie();
+    await apiClient.post(`/conversation-reports/${report.id}/resolve`, {
+      resolution_note: resolvePanel.value.resolutionNote?.trim() || null,
+    });
+
+    const cid = reportsModerationDialog.value.conversationId;
+    const { data } = await apiClient.get(`/conversations/${cid}/reports`);
+    reportsModerationDialog.value.items = Array.isArray(data?.items) ? data.items : [];
+    reportsModerationDialog.value.total_count = Number(data?.total_count || 0);
+    reportsModerationDialog.value.open_count = Number(data?.open_count || 0);
+
+    await loadConversations();
+    closeResolvePanel();
+    showSnackbar('Скаргу оброблено', 'success');
+  } catch {
+    showSnackbar('Не вдалося обробити скаргу', 'error', 4200);
+  } finally {
+    resolvePanel.value.loading = false;
   }
 }
 
@@ -770,13 +1155,6 @@ onMounted(async () => {
   color: rgba(27, 94, 32, 0.78) !important;
 }
 
-.conversation-row--reported {
-  background: linear-gradient(90deg, rgba(127, 29, 29, 0.35), rgba(153, 27, 27, 0.22));
-}
-.conversation-row--reported :deep(.v-list-item-title) {
-  color: #ffe4e6 !important;
-}
-
 .product-link {
   text-decoration: underline;
   font-weight: 600;
@@ -817,15 +1195,9 @@ onMounted(async () => {
   height: 1px;
   background: rgba(127, 127, 127, 0.28);
 }
-.date-divider::before {
-  left: 0;
-}
-.date-divider::after {
-  right: 0;
-}
-.date-divider span {
-  padding: 0 8px;
-}
+.date-divider::before { left: 0; }
+.date-divider::after { right: 0; }
+.date-divider span { padding: 0 8px; }
 
 .message-row {
   display: flex;
@@ -852,12 +1224,10 @@ onMounted(async () => {
   top: 2px;
   z-index: 2;
 }
-
 .message-row.mine .bubble {
   background: #1976d2;
   color: #fff;
 }
-
 .msg-author {
   font-size: 11px;
   opacity: 0.72;
@@ -866,11 +1236,9 @@ onMounted(async () => {
 .message-row.mine .msg-author {
   text-align: right;
 }
-
 .images .v-img {
   background: white;
 }
-
 .meta {
   display: inline-flex;
   align-items: center;
@@ -887,27 +1255,24 @@ onMounted(async () => {
   justify-content: flex-end;
   color: rgba(255, 255, 255, 0.9);
 }
-.meta-time {
-  font-weight: 600;
-}
+.meta-time { font-weight: 600; }
 .meta-status {
   margin-left: 6px;
   display: inline-flex;
   align-items: center;
 }
-
 .deleted-message {
   font-style: italic;
   opacity: 0.78;
 }
-
-.chat-image {
-  cursor: zoom-in;
+.deleted-message--soft {
+  color: #fca5a5;
+  font-style: italic;
+  font-size: 12px;
+  margin-bottom: 6px;
 }
-
-.d-none {
-  display: none;
-}
+.chat-image { cursor: zoom-in; }
+.d-none { display: none; }
 
 .list-move-move {
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -921,15 +1286,10 @@ onMounted(async () => {
   opacity: 0;
   transform: translateY(8px);
 }
-.product-inactive-label {
-  color: #ef5350;
-  font-weight: 700;
-}
 
 .product-link--inactive {
   opacity: 0.95;
 }
-
 .product-thumb--inactive {
   filter: grayscale(100%) brightness(1.18) contrast(0.85);
   opacity: 0.72;
@@ -940,17 +1300,13 @@ onMounted(async () => {
   align-items: center;
   padding: 2px 8px;
   border-radius: 6px;
-  background: #989ca3;   /* светло-серый фон */
-  color: #232a35;        /* темно-серый текст */
+  background: #989ca3;
+  color: #232a35;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   line-height: 1.2;
-}
-
-.product-link--inactive {
-  opacity: 0.9;
 }
 
 .between-arrow {
@@ -960,5 +1316,84 @@ onMounted(async () => {
   margin: 0 4px;
   font-weight: 700;
   opacity: 0.9;
+}
+
+.report-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.report-badge--resolved {
+  background: #2e7d32;
+  color: #fff;
+}
+.report-badge-btn {
+  min-width: auto;
+  height: 22px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.report-badge-btn--resolved {
+  background-color: #2e7d32 !important;
+  color: #fff !important;
+}
+
+.reports-chat-preview {
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.reports-chat-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.reports-chat-row--mine {
+  justify-content: flex-end;
+}
+
+.reports-chat-bubble {
+  max-width: 78%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f3f4f6;
+  color: #111827;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.reports-chat-row--mine .reports-chat-bubble {
+  background: #1976d2;
+  color: #fff;
+}
+
+.reports-chat-meta {
+  font-size: 12px;
+  opacity: 0.78;
+  margin-bottom: 4px;
+}
+
+.reports-chat-row--mine .reports-chat-meta {
+  opacity: 0.9;
+}
+
+.reports-chat-deleted {
+  color: #fca5a5;
+  font-style: italic;
+  font-size: 12px;
+  margin-bottom: 6px;
 }
 </style>

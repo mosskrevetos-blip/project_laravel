@@ -18,6 +18,20 @@
       </div>
 
       <div class="d-flex align-center ga-2">
+        <v-btn
+          v-if="hasAnyReportInConversation"
+          size="small"
+          variant="flat"
+          :color="hasOpenReportInConversation ? 'red-darken-2' : 'success'"
+          class="report-toggle-btn"
+          @click="toggleReportInfo"
+        >
+          {{ hasOpenReportInConversation ? 'Скарга' : 'Скарга оброблена' }}
+          <v-icon end size="16">
+            {{ reportInfoOpen ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
+          </v-icon>
+        </v-btn>
+
         <v-tooltip text="Поскаржитися" location="bottom">
           <template #activator="{ props }">
             <v-btn
@@ -39,6 +53,55 @@
       </div>
     </v-sheet>
 
+    <v-expand-transition>
+      <div v-if="hasAnyReportInConversation && reportInfoOpen" class="px-4 pb-3">
+        <v-sheet rounded border class="pa-3 report-info-sheet">
+          <div v-if="reportDetailsLoading" class="py-2">
+            <v-skeleton-loader type="paragraph" />
+          </div>
+
+          <template v-else-if="hasOpenReportInConversation && latestOpenReport">
+            <div class="text-caption text-grey mb-1">
+              Дата скарги: {{ formatDateTime(latestOpenReport.created_at) }}
+            </div>
+
+            <div class="text-caption mb-2">
+              Статус:
+              <v-chip size="x-small" color="warning" variant="tonal">
+                Відкрита
+              </v-chip>
+            </div>
+
+            <div class="text-body-2" style="white-space: pre-wrap;">
+              {{ latestOpenReport.reason || 'Без опису' }}
+            </div>
+          </template>
+
+          <template v-else-if="latestResolvedReport">
+            <div class="text-caption text-grey mb-1">
+              Дата обробки: {{ formatDateTime(latestResolvedReport.resolved_at || latestResolvedReport.updated_at) }}
+            </div>
+
+            <div class="text-caption mb-2">
+              Статус:
+              <v-chip size="x-small" color="success" variant="tonal">
+                Оброблена
+              </v-chip>
+            </div>
+
+            <div class="text-caption text-grey mb-1">Відповідь адміністратора / менеджера:</div>
+            <div class="text-body-2" style="white-space: pre-wrap;">
+              {{ latestResolvedReport.resolution_note || 'Без відповіді' }}
+            </div>
+          </template>
+
+          <div v-else class="text-caption text-grey">
+            Дані по скарзі недоступні
+          </div>
+        </v-sheet>
+      </div>
+    </v-expand-transition>
+
     <v-divider />
 
     <div ref="chatBodyEl" class="chat-body" @scroll.passive="updateIsNearBottom">
@@ -52,7 +115,7 @@
             <span>{{ formatDividerDate(m.created_at) }}</span>
           </div>
 
-          <div class="message-row" :class="{ 'mine': isMine(m) }">
+          <div class="message-row" :class="{ mine: isMine(m) }">
             <div class="bubble" :class="{ 'bubble--with-actions': isMine(m) && !m.deleted_by_user }">
               <div class="bubble-actions" v-if="isMine(m) && !m.deleted_by_user">
                 <v-menu location="bottom end">
@@ -190,13 +253,28 @@
         </v-card>
       </v-dialog>
 
-      <v-dialog v-model="reportDialog.open" max-width="460">
+      <v-dialog v-model="reportDialog.open" max-width="520">
         <v-card>
           <v-card-title class="text-h6">Підтвердити скаргу</v-card-title>
-          <v-card-text>Ви впевнені, що хочете поскаржитися на цей діалог?</v-card-text>
+
+          <v-card-text>
+            <div class="mb-3">Опишіть, будь ласка, причину скарги:</div>
+
+            <v-textarea
+              v-model="reportDialog.reason"
+              label="Причина скарги"
+              rows="3"
+              auto-grow
+              variant="outlined"
+              density="compact"
+              maxlength="2000"
+              counter
+            />
+          </v-card-text>
+
           <v-card-actions>
             <v-spacer />
-            <v-btn variant="text" @click="reportDialog.open = false">Скасувати</v-btn>
+            <v-btn variant="text" @click="closeReportDialog">Скасувати</v-btn>
             <v-btn color="red-darken-2" variant="flat" :loading="reportDialog.loading" @click="confirmReport">
               Поскаржитися
             </v-btn>
@@ -299,6 +377,56 @@ const sellerStatusText = computed(() => {
   return formatLastSeenText(seller.last_seen_at);
 });
 
+const hasAnyReportInConversation = computed(() => {
+  return Number(messageStore.currentConversation?.reports_total_count || 0) > 0;
+});
+
+const hasOpenReportInConversation = computed(() => {
+  return Number(messageStore.currentConversation?.reports_open_count || 0) > 0;
+});
+
+const reportInfoOpen = ref(false);
+const reportDetailsLoading = ref(false);
+const reportDetails = ref([]);
+
+const latestOpenReport = computed(() => {
+  const open = reportDetails.value.filter(r => r?.status === 'open');
+  if (!open.length) return null;
+  return [...open].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+});
+
+const latestResolvedReport = computed(() => {
+  const resolved = reportDetails.value.filter(r => r?.status === 'resolved');
+  if (!resolved.length) return null;
+  return [...resolved].sort((a, b) => {
+    const aTs = new Date(a.resolved_at || a.updated_at || a.created_at).getTime();
+    const bTs = new Date(b.resolved_at || b.updated_at || b.created_at).getTime();
+    return bTs - aTs;
+  })[0];
+});
+
+async function loadReportDetails() {
+  const conversationId = messageStore.currentConversation?.id;
+  if (!conversationId) return;
+
+  reportDetailsLoading.value = true;
+  try {
+    const { data } = await apiClient.get(`/conversations/${conversationId}/reports`);
+    reportDetails.value = Array.isArray(data?.items) ? data.items : [];
+  } catch {
+    reportDetails.value = [];
+  } finally {
+    reportDetailsLoading.value = false;
+  }
+}
+
+async function toggleReportInfo() {
+  reportInfoOpen.value = !reportInfoOpen.value;
+  if (reportInfoOpen.value) {
+    await loadReportDetails();
+  }
+}
+
 const chatLightbox = ref({
   open: false,
   urls: [],
@@ -358,6 +486,17 @@ function formatTimeParts(iso) {
   }).format(d);
 
   return { time, date };
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('uk-UA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso));
 }
 
 function formatLastSeenText(lastSeenAtIso) {
@@ -511,10 +650,17 @@ async function deleteMyMessage(messageId) {
 const reportDialog = ref({
   open: false,
   loading: false,
+  reason: '',
 });
 
 function openReportDialog() {
+  reportDialog.value.reason = '';
   reportDialog.value.open = true;
+}
+
+function closeReportDialog() {
+  reportDialog.value.open = false;
+  reportDialog.value.reason = '';
 }
 
 async function confirmReport() {
@@ -524,8 +670,13 @@ async function confirmReport() {
   reportDialog.value.loading = true;
   try {
     await apiClient.getCsrfCookie();
-    await apiClient.post(`/conversations/${conversationId}/report`);
-    reportDialog.value.open = false;
+    await apiClient.post(`/conversations/${conversationId}/report`, {
+      reason: reportDialog.value.reason?.trim() || null,
+    });
+
+    await messageStore.refreshCurrentConversation();
+    await loadReportDetails();
+    closeReportDialog();
   } catch {
     showError('Не вдалося надіслати скаргу');
   } finally {
@@ -538,11 +689,32 @@ watch(
   async (open) => {
     if (open) {
       didInitialScroll = false;
+      reportInfoOpen.value = false;
+      reportDetails.value = [];
       await nextTick();
       updateIsNearBottom();
       startPresencePing();
     } else {
       stopPresencePing();
+      reportInfoOpen.value = false;
+      reportDetails.value = [];
+    }
+  }
+);
+
+watch(
+  () => messageStore.currentConversation?.id,
+  () => {
+    reportInfoOpen.value = false;
+    reportDetails.value = [];
+  }
+);
+
+watch(
+  () => messageStore.currentConversation?.reports_open_count,
+  async () => {
+    if (reportInfoOpen.value) {
+      await loadReportDetails();
     }
   }
 );
@@ -679,5 +851,16 @@ onUnmounted(() => stopPresencePing());
 
 .chat-image {
   cursor: zoom-in;
+}
+
+.report-toggle-btn {
+  text-transform: none !important;
+  font-weight: 700;
+  color: #fff !important;
+}
+
+.report-info-sheet {
+  background: rgba(46, 125, 50, 0.04);
+  border-color: rgba(46, 125, 50, 0.25) !important;
 }
 </style>

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PresenceController;
 use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\ConversationReportController;
 
 
 //==========================================================================
@@ -133,8 +134,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
     Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
     Route::post('/conversations/{conversation}/read', [MessageController::class, 'markRead']);
-    Route::post('/conversations/{conversation}/report', [ConversationController::class, 'report']);
     Route::post('/messages/{message}/delete-by-author', [MessageController::class, 'deleteByAuthor']);
+    Route::post('/conversations/{conversation}/report', [ConversationReportController::class, 'store']);
+    Route::get('/conversations/{conversation}/reports', [ConversationReportController::class, 'index']);
+    Route::post('/conversation-reports/{report}/resolve', [ConversationReportController::class, 'resolve']);
 
     // Пошук та історія пошуку
     Route::get('/search/history', [SearchController::class, 'history']);

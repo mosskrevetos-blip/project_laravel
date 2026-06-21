@@ -1,5 +1,3 @@
-//public-app/src/stores/messageStore.js
-
 import { defineStore } from 'pinia';
 import apiClient from '@/api';
 
@@ -28,11 +26,31 @@ export const useMessageStore = defineStore('messageStore', {
   },
 
   actions: {
+    // Безопасно нормализуем структуру conversation,
+    // чтобы ChatDrawer мог работать с полями по жалобам даже если backend что-то не прислал.
+    normalizeConversation(raw) {
+      const c = raw || {};
+
+      const reportsTotal =
+        Number(c.reports_total_count ?? c.reportsTotalCount ?? 0) || 0;
+
+      const reportsOpen =
+        Number(c.reports_open_count ?? c.reportsOpenCount ?? 0) || 0;
+
+      const lastReport = c.last_report ?? c.lastReport ?? null;
+
+      return {
+        ...c,
+        reports_total_count: reportsTotal,
+        reports_open_count: reportsOpen,
+        last_report: lastReport,
+      };
+    },
 
     async refreshCurrentConversation() {
       if (!this.currentConversation?.id) return;
       const { data } = await apiClient.get(`/conversations/${this.currentConversation.id}`);
-      this.currentConversation = data;
+      this.currentConversation = this.normalizeConversation(data);
     },
 
     setDrawerOpen(v) {
@@ -54,7 +72,7 @@ export const useMessageStore = defineStore('messageStore', {
       this.loadingConversations = true;
       try {
         const { data } = await apiClient.get('/conversations');
-        this.conversations = data;
+        this.conversations = Array.isArray(data) ? data : [];
       } finally {
         this.loadingConversations = false;
       }
@@ -72,13 +90,16 @@ export const useMessageStore = defineStore('messageStore', {
       const { data } = await apiClient.post(`/conversations/with-seller/${sellerId}`, {
         product_id: productId,
       });
-      
-      this.currentConversation = data;
+
+      this.currentConversation = this.normalizeConversation(data);
       this.drawerOpen = true;
 
-      await this.loadMessages(data.id);
-      await this.markRead(data.id);
+      await this.loadMessages(this.currentConversation.id);
+      await this.markRead(this.currentConversation.id);
       await this.loadConversations();
+
+      // важно: подтянуть show-ответ с агрегатами жалоб (reports_total_count, last_report и т.д.)
+      await this.refreshCurrentConversation();
     },
 
     async loadMessages(conversationId, { perPage = 30 } = {}) {
@@ -90,7 +111,7 @@ export const useMessageStore = defineStore('messageStore', {
 
         // Laravel paginate: data.data = items
         this.messagesPagination = data;
-        this.messages = (data.data || []).slice().reverse(); // в UI снизу вверх
+        this.messages = (data?.data || []).slice().reverse(); // в UI снизу вверх
       } finally {
         this.loadingMessages = false;
       }
@@ -102,14 +123,14 @@ export const useMessageStore = defineStore('messageStore', {
         await apiClient.getCsrfCookie();
 
         const form = new FormData();
-        if (body && body.trim()) form.append('body', body);
-        
+        if (body && body.trim()) form.append('body', body.trim());
+
         const effectiveProductId = productId ?? this.currentProductContextId;
         if (!effectiveProductId) {
           throw new Error('product_id is required to send a message');
         }
         form.append('product_id', String(effectiveProductId));
-        
+
         if (imageFile) form.append('image', imageFile);
 
         const { data } = await apiClient.post(`/conversations/${conversationId}/messages`, form, {
@@ -121,6 +142,9 @@ export const useMessageStore = defineStore('messageStore', {
 
         // обновим список диалогов (last message / sorting / unread)
         await this.loadConversations();
+
+        // подстрахуем актуальность текущего диалога (updated_at, counters, reports summary)
+        await this.refreshCurrentConversation();
       } finally {
         this.sending = false;
       }

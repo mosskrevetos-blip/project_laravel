@@ -22,6 +22,7 @@ class MessageController extends Controller
     {
         $user = $request->user();
         $isAdminOrManager = $user->hasRole('admin') || $user->hasRole('manager');
+        $scope = (string) $request->query('scope', 'my');
 
         if (
             !$isAdminOrManager &&
@@ -39,14 +40,20 @@ class MessageController extends Controller
             ->orderByDesc('id')
             ->paginate($perPage);
 
-        // hide deleted content, but keep message row
-        $messages->getCollection()->transform(function ($m) {
-            if ((bool) $m->deleted_by_user) {
-                $m->body = null;
-                $m->setRelation('images', collect());
-            }
-            return $m;
-        });
+        $isModerationAllScope = $isAdminOrManager && $scope === 'all';
+
+        // Для обычных пользователей (и admin/manager вне scope=all):
+        // скрываем контент удалённых сообщений.
+        // Для admin/manager + scope=all: показываем контент удалённых.
+        if (!$isModerationAllScope) {
+            $messages->getCollection()->transform(function ($m) {
+                if ((bool) $m->deleted_by_user) {
+                    $m->body = null;
+                    $m->setRelation('images', collect());
+                }
+                return $m;
+            });
+        }
 
         return response()->json($messages);
     }
@@ -91,7 +98,7 @@ class MessageController extends Controller
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
 
-                // ВАЖНО: возвращаем path/mime/size, а не url
+                // возвращаем path/mime/size, а не url
                 $stored = $this->storeChatImageAsWebp($conversation->id, $message->id, $file);
 
                 MessageImage::create([
@@ -204,7 +211,7 @@ class MessageController extends Controller
 
         $fileName = Str::uuid()->toString() . '.webp';
         $dir = "chat/{$conversationId}/{$messageId}";
-        $path = "{$dir}/{$fileName}"; // относительный путь в public disk
+        $path = "{$dir}/{$fileName}";
 
         $binary = (string) $image->toWebp(82);
         Storage::disk('public')->put($path, $binary);

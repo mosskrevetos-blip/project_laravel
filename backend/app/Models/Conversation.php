@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\ConversationReport;
 
 class Conversation extends Model
 {
@@ -28,5 +29,15 @@ class Conversation extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
+    }
+
+    public function reports(): HasMany
+    {
+        return $this->hasMany(ConversationReport::class);
+    }
+
+    public function openReports(): HasMany
+    {
+        return $this->hasMany(ConversationReport::class)->where('status', 'open');
     }
 }
