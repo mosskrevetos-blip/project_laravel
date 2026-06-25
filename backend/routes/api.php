@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PresenceController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\ConversationReportController;
+use App\Http\Controllers\Api\AdminMessageController;
 
 
 //==========================================================================
@@ -138,6 +139,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/conversations/{conversation}/report', [ConversationReportController::class, 'store']);
     Route::get('/conversations/{conversation}/reports', [ConversationReportController::class, 'index']);
     Route::post('/conversation-reports/{report}/resolve', [ConversationReportController::class, 'resolve']);
+    // Повідомлення від адміністрації
+    Route::post('/admin-messages', [AdminMessageController::class, 'store']);
+    Route::get('/admin-messages/sent', [AdminMessageController::class, 'sent']);
+    Route::get('/admin-messages/inbox', [AdminMessageController::class, 'inbox']);
+    Route::post('/admin-messages/{message}/read', [AdminMessageController::class, 'markRead']);
+    Route::get('/admin-messages/unread-count', [AdminMessageController::class, 'unreadCount']);
+    Route::put('/admin-messages/{message}', [AdminMessageController::class, 'update']);
+    Route::delete('/admin-messages/{message}', [AdminMessageController::class, 'destroy']);
 
     // Пошук та історія пошуку
     Route::get('/search/history', [SearchController::class, 'history']);

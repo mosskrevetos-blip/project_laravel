@@ -17,25 +17,20 @@
     <!-- Профіль (праве меню) -->
     <v-navigation-drawer v-model="isProfileDrawerOpen" location="right" temporary>
       <v-list nav>
-        <!-- Відображаються ім'я та електронна адреса поточного користувача 
-        Якщо користувач не аутентифікований (authStore.user === null), то title та subtitle будуть порожніми. -->
         <v-list-item
           :title="authStore.user?.name"
           :subtitle="authStore.user?.email"
           class="mb-2"
         >
-          <!-- Слот для відображення аватара -->
           <template v-slot:prepend>
             <v-avatar color="primary">
               <v-icon icon="mdi-account-circle"></v-icon>
             </v-avatar>
           </template>
-
         </v-list-item>
+
         <v-divider></v-divider>
-        
-        <!-- Проходим циклом по массиву userMenuItems. Кожен елемент масиву - це пункт меню. -->
-        <!-- Якщо пункт меню (item) повинен відображатися (shouldShowItem), він відображається з іконкою, заголовком і посиланням. -->
+
         <template v-for="item in userMenuItems" :key="item.title">
           <v-list-item
             v-if="shouldShowItem(item)"
@@ -46,8 +41,8 @@
               <span>{{ item.title }}</span>
 
               <v-badge
-                v-if="item.title === 'Повідомлення' && !messageStore.loadingConversations && messageStore.unreadThreadsCount > 0"
-                :content="messageStore.unreadThreadsCount"
+                v-if="item.title === 'Повідомлення' && !messageStore.loadingConversations && messageStore.totalUnreadCombined > 0"
+                :content="messageStore.totalUnreadCombined"
                 color="red"
                 inline
               />
@@ -81,15 +76,11 @@
 
       <v-divider></v-divider>
 
-      <!-- Контейнер для відображення списку товарів у кошику -->
       <CartSidebar :isCartDrawerOpen="isCartDrawerOpen" />
-
     </v-navigation-drawer>
 
-    <!-- Чат-бот -->
     <ChatDrawer />
 
-    <!-- Верхний тулбар (информационный) -->
     <template v-if="route.name !== 'checkout'">
       <v-app-bar app :color="isDark ? 'grey-darken-3' : 'grey-lighten-4'" height="40" flat>
         <v-container class="d-flex align-center py-0">
@@ -118,9 +109,7 @@
         </v-container>
       </v-app-bar>
     </template>
-    
 
-    <!-- Основна шапка і вміст -->
     <template v-if="route.name !== 'checkout'">
       <v-app-bar
         app
@@ -130,11 +119,9 @@
         height="120"
       >
         <v-container class="pa-0 py-3 d-flex flex-column justify-center main-header-container">
-          <!-- Верхній ряд шапки -->
           <div class="d-flex align-center w-100">
             <v-app-bar-nav-icon variant="text" @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
 
-            <!-- Посилання на головну сторінку -->
             <router-link
               :to="{ name: 'home' }"
               class="no-decoration"
@@ -207,7 +194,6 @@
             <v-btn :icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" @click="toggleTheme"></v-btn>
             <v-btn icon><v-icon>mdi-bell-outline</v-icon></v-btn>
 
-            <!-- Favorite icon -->
             <div class="favorite-container">
               <v-badge
                 :content="favoriteStore.totalFavorites"
@@ -227,7 +213,6 @@
               </v-btn>
             </div>
 
-            <!-- Cart icon with badge -->
             <div class="cart-container">
               <v-badge
                 :content="cart.totalItems"
@@ -254,11 +239,10 @@
               <v-btn variant="outlined" class="mx-1" @click="authStore.openRegisterDialog()">Зареєструватися</v-btn>
             </template>
 
-            <!-- Профіль користувача (відображається, якщо користувач аутентифікований) -->
             <div v-if="authStore.isAuthenticated" class="profile-container">
               <v-badge
-                v-if="!messageStore.loadingConversations && messageStore.unreadThreadsCount > 0"
-                :content="messageStore.unreadThreadsCount"
+                v-if="!messageStore.loadingConversations && messageStore.totalUnreadCombined > 0"
+                :content="messageStore.totalUnreadCombined"
                 color="red"
                 overlap
                 location="top end"
@@ -286,15 +270,13 @@
             </div>
           </div>
 
-          <!-- Пошук на всю ширину контейнера -->
           <div class="mt-3 w-100 header-search-slot">
             <HeaderSearchBar />
           </div>
-
         </v-container>
       </v-app-bar>
     </template>
-    
+
     <v-main class="bg-grey-lighten-3">
       <v-container>
         <router-view />
@@ -302,14 +284,11 @@
     </v-main>
 
     <v-footer :color="isDark ? 'grey-darken-4' : 'grey-lighten-4'" app class="text-center">
-      <!-- Верхня частина футера -->
       <v-container class="d-flex justify-space-between align-center">
-        <!-- Логотип або назва -->
         <div class="font-weight-bold">
           {{ companyName }}
         </div>
 
-        <!-- Соціальні іконки -->
         <v-btn
           v-for="icon in footerIcons"
           :key="icon"
@@ -325,7 +304,6 @@
         </v-btn>
       </v-container>
 
-      <!-- Нижня частина футера -->
       <v-divider></v-divider>
       <v-container>
         <div>
@@ -334,7 +312,6 @@
       </v-container>
     </v-footer>
 
-    <!-- Діалог: кошик порожній -->
     <v-dialog v-model="emptyCartDialog" max-width="420">
       <v-card>
         <v-card-title>Кошик порожній</v-card-title>
@@ -362,7 +339,6 @@
       v-model="authStore.ui.forgotPasswordDialogOpen"
       @open-login="authStore.openLoginDialog"
     />
-
   </v-app>
 </template>
 
@@ -390,29 +366,17 @@ const categoryStore = useCategoryStore();
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
-// Посилання на store пошуку
 const searchStore = useSearchStore();
-// Посилання на store кошика
 const cart = useCartStore();
-// Посилання на store обраного
 const favoriteStore = useFavoriteStore();
-
-// Посилання на store повідомлень (для чат-бота)
 const messageStore = useMessageStore();
 
-// Змінна для стану бічного лівого меню.
 const drawer = ref(false);
-
-// Змінна для стану бічного правого меню.
 const isProfileDrawerOpen = ref(false);
-
-// Змінна для стану бічного правого меню кошика.
 const isCartDrawerOpen = ref(false);
 
-// Назва компанії
 const companyName = 'E-Shop';
 
-// Посилання на соціальні мережі
 const socialLinks = {
   'mdi-facebook': 'https://facebook.com',
   'mdi-twitter': 'https://twitter.com',
@@ -421,10 +385,7 @@ const socialLinks = {
 };
 
 const phoneNumbers = ref(['0 800 123-45-67', '044 123-45-67', '050 123-45-67']);
-
-
 const emptyCartDialog = ref(false);
-
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible') authStore.revalidateUser();
@@ -440,10 +401,7 @@ function toggleTheme() {
 const isMenuOpen = ref(false);
 const hoveredCategory = ref(null);
 
-// Праве меню
-// Посилання на адмін-панель
 const adminPanelUrl = import.meta.env.VITE_ADMIN_SITE_URL;
-// Масив пунктів меню для правого меню
 const userMenuItems = ref([
   { title: 'Мої Товари', icon: 'mdi-package-variant-closed', href: `${adminPanelUrl}/products`, requiredRoles: ['seller','user','manager','wholesaler','manufacturer','admin'] },
   { title: 'Мої Замовлення', icon: 'mdi-cart-outline', href: `${adminPanelUrl}/orders`, requiredRoles: [] },
@@ -460,18 +418,16 @@ async function pingPresenceGlobal() {
     await apiClient.getCsrfCookie();
     await apiClient.post('/presence/ping');
   } catch (e) {
-    // игнор (401, сеть и т.п.)
+    // ignore
   }
 }
 
 function startPresenceTimer() {
   if (presenceTimer) return;
 
-  // сразу пингуем при старте
   pingPresenceGlobal();
 
   presenceTimer = window.setInterval(() => {
-    // пингуем только если user реально загружен
     if (authStore.user?.id) pingPresenceGlobal();
   }, 60 * 1000);
 }
@@ -490,11 +446,8 @@ watch(
   { immediate: true }
 );
 
-// Функція для перевірки, чи повинен відображатися пункт для правого меню залежно від ролей користувача
 function shouldShowItem(item) {
-  // Якщо немає вимог по ролях, показуємо пункт
   if (!item.requiredRoles || item.requiredRoles.length === 0) return true;
-  // Перевіряємо, чи є у користувача хоча б одна з потрібних ролей
   return item.requiredRoles.some(role => authStore.hasRole(role));
 }
 
@@ -508,49 +461,41 @@ const rootCategories = computed(() => {
   return Object.values(categoryMap).filter(c => !c.parent_id);
 });
 
-// Обробник кліку по кнопці "Додати товар"
 function handleAddProductClick() {
   const adminCreateUrl = `${adminPanelUrl}/products?action=create`;
   if (authStore.isAuthenticated) window.location.href = adminCreateUrl;
   else { sessionStorage.setItem('redirectAfterLogin', adminCreateUrl); authStore.openLoginDialog(); }
 }
 
-// Обробник кліку по іконці кошика
 async function onCartIconClick() {
   if (cart.totalItems === 0) { emptyCartDialog.value = true; return; }
   isProfileDrawerOpen.value = false;
   isCartDrawerOpen.value = true;
 }
 
-// Обробник кліку по іконці обраного
 function onFavoriteIconClick() {
   if (favoriteStore.totalFavorites === 0) {
     alert('Ваше обране поки порожнє');
     return;
   }
-  
-  // TODO: Перенаправлення на сторінку обраного (буде реалізовано в admin-app)
   alert(`У вас ${favoriteStore.totalFavorites} товарів в обраному`);
 }
 
+watch(isMenuOpen, (isOpen) => {
+  if (isOpen && rootCategories.value.length > 0 && !hoveredCategory.value) hoveredCategory.value = rootCategories.value[0];
+});
 
-// Автоматичне встановлення першої категорії при відкритті меню
-watch(isMenuOpen, (isOpen) => { if (isOpen && rootCategories.value.length > 0 && !hoveredCategory.value) hoveredCategory.value = rootCategories.value[0]; });
-
-// Перенаправлення користувача на головну сторінку, якщо він вийшов з системи на сторінці, що вимагає аутентифікації
 watch(
   () => authStore.isAuthenticated,
   async (isAuth, wasAuth) => {
-    // logout
     if (wasAuth === true && isAuth === false) {
       if (route.meta.requiresAuth) router.push({ name: 'home' });
 
-      // очищаем чат-данные, чтобы бейдж не висел от прошлого юзера
       messageStore.conversations = [];
+      messageStore.adminUnreadCount = 0;
       return;
     }
 
-    // login (или восстановление сессии)
     if (isAuth) {
       try {
         await messageStore.loadConversations();
@@ -562,8 +507,6 @@ watch(
   { immediate: true }
 );
 
-
-// Ініціалізація при монтуванні компонента
 onMounted(async () => {
   categoryStore.fetchCategories();
 
@@ -571,91 +514,81 @@ onMounted(async () => {
     window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   if (prefersDark) theme.global.name.value = 'dark';
 
-  // ✅ ВАЖНО: подтянуть текущего пользователя (иначе presenceTimer не стартует)
   try {
     await authStore.getUser();
 
-    // Якщо користувач авторизований — favorites мають братися з сервера
     if (authStore.isAuthenticated) {
       await favoriteStore.loadFromServer();
       await favoriteSellerStore.loadFromServer();
       await searchStore.loadHistoryFromServer();
+      await messageStore.loadConversations();
     } else {
       searchStore.loadLocalHistory();
     }
-
   } catch (e) {
-    // ignore (если не залогинен)
+    // ignore
   }
 
-  // Слухач для зміни видимості сторінки
   document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
-// Очистка при розмонтуванні компонента
 onUnmounted(() => {
   stopPresenceTimer();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
-
 </script>
 
 <style scoped>
-  .cart-container { position: relative; display: inline-flex; align-items: center; }
-  .cart-badge >>> .v-badge__badge, .cart-badge .v-badge__badge { transform: translate(-40%, 40%) !important; }
-  .cart-btn { width: 48px; height: 48px; }
+.cart-container { position: relative; display: inline-flex; align-items: center; }
+.cart-badge >>> .v-badge__badge, .cart-badge .v-badge__badge { transform: translate(-40%, 40%) !important; }
+.cart-btn { width: 48px; height: 48px; }
 
-  .favorite-container { position: relative; display: inline-flex; align-items: center; }
-  .favorite-badge >>> .v-badge__badge, .favorite-badge .v-badge__badge { transform: translate(-40%, 40%) !important; }
-  .favorite-btn-header { width: 48px; height: 48px; }
-  .main-header-bar {
-    align-items: stretch !important;
-  }
+.favorite-container { position: relative; display: inline-flex; align-items: center; }
+.favorite-badge >>> .v-badge__badge, .favorite-badge .v-badge__badge { transform: translate(-40%, 40%) !important; }
+.favorite-btn-header { width: 48px; height: 48px; }
 
-  .w-100 {
-    width: 100%;
-  }
+.main-header-bar {
+  align-items: stretch !important;
+  overflow: visible !important;
+}
 
-  .main-header-bar {
-      align-items: stretch !important;
-      overflow: visible !important;
-    }
+.w-100 {
+  width: 100%;
+}
 
-  .main-header-container {
-    overflow: visible !important;
-    position: relative;
-    z-index: 20;
-  }
+.main-header-container {
+  overflow: visible !important;
+  position: relative;
+  z-index: 20;
+}
 
-  .header-search-slot {
-    position: relative;
-    overflow: visible !important;
-    z-index: 30;
-  }
+.header-search-slot {
+  position: relative;
+  overflow: visible !important;
+  z-index: 30;
+}
 
-  .profile-container {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-  }
+.profile-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
 
-  /* позиция бейджа как у favorite/cart */
-  .message-badge :deep(.v-badge__badge) {
-    transform: translate(-18%, 18%) !important;
-  }
-
+.message-badge :deep(.v-badge__badge) {
+  transform: translate(-18%, 18%) !important;
+}
 </style>
 
 <style>
-  .v-overlay__scrim { background: rgba(0, 0, 0, 1) !important; }
-  .v-overlay { --v-overlay-opacity: 0.86 !important; }
+.v-overlay__scrim { background: rgba(0, 0, 0, 1) !important; }
+.v-overlay { --v-overlay-opacity: 0.86 !important; }
 
-  .v-app-bar {
-    overflow: visible !important;
-  }
+.v-app-bar {
+  overflow: visible !important;
+}
 
-  .v-toolbar__content,
-  .v-toolbar__extension {
-    overflow: visible !important;
-  }
+.v-toolbar__content,
+.v-toolbar__extension {
+  overflow: visible !important;
+}
 </style>

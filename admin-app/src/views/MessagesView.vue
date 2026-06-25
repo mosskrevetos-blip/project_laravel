@@ -2,270 +2,326 @@
   <div>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h5">Повідомлення</h1>
-      <v-btn variant="outlined" :loading="loading" @click="loadConversations">
+      <v-btn variant="outlined" :loading="refreshLoading" @click="refreshActiveTab">
         Оновити
       </v-btn>
     </div>
 
-    <v-tabs v-if="isAdminOrManager" v-model="activeTab" class="mb-4">
-      <v-tab value="my">Мої повідомлення</v-tab>
-      <v-tab value="all">Всі повідомлення</v-tab>
+    <v-tabs v-model="activeTab" class="mb-4">
+      <v-tab value="my">
+        Мої повідомлення
+        <v-badge
+          v-if="myUnreadThreadsCount > 0"
+          :content="myUnreadThreadsCount"
+          color="red"
+          inline
+          class="ml-2"
+        />
+      </v-tab>
+
+      <v-tab v-if="!isAdminOrManager" value="admin-inbox">
+        Повідомлення від адміністратора
+        <v-badge
+          v-if="adminUnreadCount > 0"
+          :content="adminUnreadCount"
+          color="red"
+          inline
+          class="ml-2"
+        />
+      </v-tab>
+
+      <v-tab v-if="isAdminOrManager" value="all">Всі повідомлення</v-tab>
+      <v-tab v-if="isAdminOrManager" value="admin-compose">Написати повідомлення</v-tab>
     </v-tabs>
 
-    <v-alert v-if="error" type="error" variant="tonal" class="mb-4">
-      {{ error }}
-    </v-alert>
+    <template v-if="activeTab === 'admin-inbox' && !isAdminOrManager">
+      <AdminInboxTab ref="adminInboxRef" @unread-changed="handleAdminUnreadChanged" />
+    </template>
 
-    <v-card>
-      <v-list lines="two" class="py-0">
-        <TransitionGroup name="list-move" tag="div">
-          <div v-for="c in sortedConversations" :key="c.id">
-            <v-list-item
-              class="conversation-row"
-              :class="{
-                'conversation-row--unread-dark': showUnreadHighlight(c) && isDark,
-                'conversation-row--unread-light': showUnreadHighlight(c) && !isDark
-              }"
-              @click="toggleConversation(c)"
-            >
-              <template #prepend>
-                <v-avatar size="40" rounded="sm">
-                  <v-img
-                    v-if="getProductThumb(c)"
-                    :src="getProductThumb(c)"
-                    cover
-                    :class="{ 'product-thumb--inactive': !isProductActive(c.product) }"
-                  />
-                  <v-icon v-else>mdi-image-outline</v-icon>
-                </v-avatar>
-              </template>
+    <template v-else-if="activeTab === 'admin-compose' && isAdminOrManager">
+      <AdminComposeTab ref="adminComposeRef" />
+    </template>
 
-              <v-list-item-title class="d-flex align-center justify-space-between">
-                <span class="d-flex align-center flex-wrap ga-1">
-                  <template v-if="isModerationAllTab">
-                    <span>{{ c?.buyer?.name || `Покупець #${c?.buyer_id}` }}</span>
-                    <span class="between-arrow">↔</span>
-                    <span>{{ c?.seller?.name || `Продавець #${c?.seller_id}` }}</span>
-                  </template>
+    <template v-else>
+      <v-alert v-if="error" type="error" variant="tonal" class="mb-4">
+        {{ error }}
+      </v-alert>
 
-                  <template v-else>
-                    <span>{{ getCounterpartyName(c) }}</span>
-                  </template>
+      <!-- pagination controls for tabs "Мої повідомлення" / "Всі повідомлення" -->
+      <div class="d-flex align-center justify-end mb-3">
+        <span class="text-caption text-grey mr-2">Показувати:</span>
+        <v-select
+          v-model="chatPerPageUi"
+          :items="chatPerPageOptions"
+          item-title="title"
+          item-value="value"
+          variant="outlined"
+          density="compact"
+          hide-details
+          style="max-width: 130px;"
+          @update:model-value="onChatPerPageChange"
+        />
+      </div>
 
-                  <span class="text-grey">·</span>
-
-                  <span v-if="!isProductActive(c.product)" class="inactive-badge">НЕАКТИВНО</span>
-
-                  <a
-                    class="product-link"
-                    :class="{ 'product-link--inactive': !isProductActive(c.product) }"
-                    :href="getPublicProductUrl(c)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click.stop
-                  >
-                    {{ c.product?.title || 'Товар' }}
-                  </a>
-                </span>
-
-                <div class="d-flex align-center ga-2">
-                  <v-btn
-                    v-if="isModerationAllTab && hasOpenReports(c)"
-                    size="x-small"
-                    color="red-darken-2"
-                    variant="flat"
-                    class="report-badge-btn"
-                    @click.stop="openReportsModerationDialog(c)"
-                  >
-                    Скарга
-                  </v-btn>
-
-                  <span
-                    v-else-if="!isModerationAllTab && hasOpenReports(c)"
-                    class="report-badge"
-                  >
-                    Скарга
-                  </span>
-
-                  <v-btn
-                    v-else-if="isModerationAllTab && hasOnlyResolvedReports(c)"
-                    size="x-small"
-                    color="success"
-                    variant="flat"
-                    class="report-badge-btn report-badge-btn--resolved"
-                    @click.stop="openReportsModerationDialog(c)"
-                  >
-                    Скарга оброблена
-                  </v-btn>
-
-                  <span
-                    v-else-if="!isModerationAllTab && hasOnlyResolvedReports(c)"
-                    class="report-badge report-badge--resolved"
-                  >
-                    Скарга оброблена
-                  </span>
-
-                  <v-tooltip text="Поскаржитися" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        icon
-                        size="small"
-                        variant="text"
-                        color="orange-darken-2"
-                        @click.stop="openReportDialog(c)"
-                      >
-                        <v-icon>mdi-emoticon-angry-outline</v-icon>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-
-                  <v-badge
-                    v-if="showUnreadHighlight(c)"
-                    :content="c.unread_count"
-                    color="red"
-                    inline
-                  />
-                </div>
-              </v-list-item-title>
-
-              <v-list-item-subtitle
-                :class="showUnreadHighlight(c)
-                  ? (isDark ? 'subtitle-unread-dark' : 'subtitle-unread-light')
-                  : ''"
+      <v-card>
+        <v-list lines="two" class="py-0">
+          <TransitionGroup name="list-move" tag="div">
+            <div v-for="c in pagedSortedConversations" :key="c.id">
+              <v-list-item
+                class="conversation-row"
+                :class="{
+                  'conversation-row--unread-dark': showUnreadHighlight(c) && isDark,
+                  'conversation-row--unread-light': showUnreadHighlight(c) && !isDark
+                }"
+                @click="toggleConversation(c)"
               >
-                Оновлено: {{ formatDateTime(c.updated_at) }}
-              </v-list-item-subtitle>
-            </v-list-item>
+                <template #prepend>
+                  <v-avatar size="40" rounded="sm">
+                    <v-img
+                      v-if="getProductThumb(c)"
+                      :src="getProductThumb(c)"
+                      cover
+                      :class="{ 'product-thumb--inactive': !isProductActive(c.product) }"
+                    />
+                    <v-icon v-else>mdi-image-outline</v-icon>
+                  </v-avatar>
+                </template>
 
-            <v-expand-transition>
-              <div v-if="openedConversationId === c.id" class="chat-expand pa-3">
-                <v-sheet rounded border class="chat-shell">
-                  <div :ref="setChatBodyRef(c.id)" class="chat-body pa-3">
-                    <div v-if="loadingMessagesMap[c.id]" class="py-4">
-                      <v-skeleton-loader type="paragraph" />
-                    </div>
+                <v-list-item-title class="d-flex align-center justify-space-between">
+                  <span class="d-flex align-center flex-wrap ga-1">
+                    <template v-if="isModerationAllTab">
+                      <span>{{ c?.buyer?.name || `Покупець #${c?.buyer_id}` }}</span>
+                      <span class="between-arrow">↔</span>
+                      <span>{{ c?.seller?.name || `Продавець #${c?.seller_id}` }}</span>
+                    </template>
 
                     <template v-else>
-                      <template v-for="(m, idx) in (messagesMap[c.id] || [])" :key="m.id">
-                        <div v-if="shouldShowDateDivider(messagesMap[c.id], idx)" class="date-divider">
-                          <span>{{ formatDividerDate(m.created_at) }}</span>
-                        </div>
+                      <span>{{ getCounterpartyName(c) }}</span>
+                    </template>
 
-                        <div :id="`msg-${c.id}-${m.id}`" class="message-row" :class="{ mine: isMine(m, c) }">
-                          <div class="bubble" :class="{ 'bubble--with-actions': isMine(m, c) && !m.deleted_by_user }">
-                            <div v-if="isModerationAllTab" class="msg-author">
-                              {{ m.sender_id === c.seller_id ? 'Продавець' : 'Покупець' }}
-                            </div>
+                    <span class="text-grey">·</span>
 
-                            <div class="bubble-actions" v-if="isMine(m, c) && !m.deleted_by_user">
-                              <v-menu location="bottom end">
-                                <template #activator="{ props }">
-                                  <v-btn v-bind="props" icon size="x-small" variant="text" @click.stop>
-                                    <v-icon size="16">mdi-dots-vertical</v-icon>
-                                  </v-btn>
-                                </template>
+                    <span v-if="!isProductActive(c.product)" class="inactive-badge">НЕАКТИВНО</span>
 
-                                <v-list density="compact">
-                                  <v-list-item @click="deleteMyMessage(m.id, c.id)">
-                                    <template #prepend>
-                                      <v-icon size="18">mdi-delete-outline</v-icon>
-                                    </template>
-                                    <v-list-item-title>Видалити</v-list-item-title>
-                                  </v-list-item>
-                                </v-list>
-                              </v-menu>
-                            </div>
+                    <a
+                      class="product-link"
+                      :class="{ 'product-link--inactive': !isProductActive(c.product) }"
+                      :href="getPublicProductUrl(c)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      @click.stop
+                    >
+                      {{ c.product?.title || 'Товар' }}
+                    </a>
+                  </span>
 
-                            <div v-if="m.deleted_by_user" class="deleted-message deleted-message--soft">
-                              Повідомлення видалено користувачем
-                            </div>
+                  <div class="d-flex align-center ga-2">
+                    <v-btn
+                      v-if="isModerationAllTab && hasOpenReports(c)"
+                      size="x-small"
+                      color="red-darken-2"
+                      variant="flat"
+                      class="report-badge-btn"
+                      @click.stop="openReportsModerationDialog(c)"
+                    >
+                      Скарга
+                    </v-btn>
 
-                            <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
+                    <span
+                      v-else-if="!isModerationAllTab && hasOpenReports(c)"
+                      class="report-badge"
+                    >
+                      Скарга
+                    </span>
 
-                            <div v-if="m.images?.length" class="images">
-                              <v-img
-                                v-for="img in m.images"
-                                :key="img.id"
-                                :src="img.url"
-                                max-width="240"
-                                class="mb-2 rounded chat-image"
-                                cover
-                                @click="openImagePreview(img.url)"
-                              />
-                            </div>
+                    <v-btn
+                      v-else-if="isModerationAllTab && hasOnlyResolvedReports(c)"
+                      size="x-small"
+                      color="success"
+                      variant="flat"
+                      class="report-badge-btn report-badge-btn--resolved"
+                      @click.stop="openReportsModerationDialog(c)"
+                    >
+                      Скарга оброблена
+                    </v-btn>
 
-                            <div class="meta mt-1">
-                              <span class="meta-time">{{ formatOnlyTime(m.created_at) }}</span>
-                              <span v-if="isMine(m, c)" class="meta-status">
-                                <v-icon size="14">{{ m.read_at ? 'mdi-check-all' : 'mdi-check' }}</v-icon>
-                              </span>
+                    <span
+                      v-else-if="!isModerationAllTab && hasOnlyResolvedReports(c)"
+                      class="report-badge report-badge--resolved"
+                    >
+                      Скарга оброблена
+                    </span>
+
+                    <v-tooltip text="Поскаржитися" location="top">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          icon
+                          size="small"
+                          variant="text"
+                          color="orange-darken-2"
+                          @click.stop="openReportDialog(c)"
+                        >
+                          <v-icon>mdi-emoticon-angry-outline</v-icon>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+
+                    <v-badge
+                      v-if="showUnreadHighlight(c)"
+                      :content="c.unread_count"
+                      color="red"
+                      inline
+                    />
+                  </div>
+                </v-list-item-title>
+
+                <v-list-item-subtitle
+                  :class="showUnreadHighlight(c)
+                    ? (isDark ? 'subtitle-unread-dark' : 'subtitle-unread-light')
+                    : ''"
+                >
+                  Оновлено: {{ formatDateTime(c.updated_at) }}
+                </v-list-item-subtitle>
+              </v-list-item>
+
+              <v-expand-transition>
+                <div v-if="openedConversationId === c.id" class="chat-expand pa-3">
+                  <v-sheet rounded border class="chat-shell">
+                    <div :ref="setChatBodyRef(c.id)" class="chat-body pa-3">
+                      <div v-if="loadingMessagesMap[c.id]" class="py-4">
+                        <v-skeleton-loader type="paragraph" />
+                      </div>
+
+                      <template v-else>
+                        <template v-for="(m, idx) in (messagesMap[c.id] || [])" :key="m.id">
+                          <div v-if="shouldShowDateDivider(messagesMap[c.id], idx)" class="date-divider">
+                            <span>{{ formatDividerDate(m.created_at) }}</span>
+                          </div>
+
+                          <div :id="`msg-${c.id}-${m.id}`" class="message-row" :class="{ mine: isMine(m, c) }">
+                            <div class="bubble" :class="{ 'bubble--with-actions': isMine(m, c) && !m.deleted_by_user }">
+                              <div v-if="isModerationAllTab" class="msg-author">
+                                {{ m.sender_id === c.seller_id ? 'Продавець' : 'Покупець' }}
+                              </div>
+
+                              <div class="bubble-actions" v-if="isMine(m, c) && !m.deleted_by_user">
+                                <v-menu location="bottom end">
+                                  <template #activator="{ props }">
+                                    <v-btn v-bind="props" icon size="x-small" variant="text" @click.stop>
+                                      <v-icon size="16">mdi-dots-vertical</v-icon>
+                                    </v-btn>
+                                  </template>
+
+                                  <v-list density="compact">
+                                    <v-list-item @click="deleteMyMessage(m.id, c.id)">
+                                      <template #prepend>
+                                        <v-icon size="18">mdi-delete-outline</v-icon>
+                                      </template>
+                                      <v-list-item-title>Видалити</v-list-item-title>
+                                    </v-list-item>
+                                  </v-list>
+                                </v-menu>
+                              </div>
+
+                              <div v-if="m.deleted_by_user" class="deleted-message deleted-message--soft">
+                                Повідомлення видалено користувачем
+                              </div>
+
+                              <div v-if="m.body" class="mb-2" style="white-space: pre-wrap;">{{ m.body }}</div>
+
+                              <div v-if="m.images?.length" class="images">
+                                <v-img
+                                  v-for="img in m.images"
+                                  :key="img.id"
+                                  :src="img.url"
+                                  max-width="240"
+                                  class="mb-2 rounded chat-image"
+                                  cover
+                                  @click="openImagePreview(img.url)"
+                                />
+                              </div>
+
+                              <div class="meta mt-1">
+                                <span class="meta-time">{{ formatOnlyTime(m.created_at) }}</span>
+                                <span v-if="isMine(m, c)" class="meta-status">
+                                  <v-icon size="14">{{ m.read_at ? 'mdi-check-all' : 'mdi-check' }}</v-icon>
+                                </span>
+                              </div>
                             </div>
                           </div>
+                        </template>
+
+                        <div v-if="!(messagesMap[c.id] || []).length" class="text-grey py-4">
+                          Повідомлень поки немає
                         </div>
                       </template>
+                    </div>
 
-                      <div v-if="!(messagesMap[c.id] || []).length" class="text-grey py-4">
-                        Повідомлень поки немає
-                      </div>
-                    </template>
-                  </div>
+                    <v-divider />
 
-                  <v-divider />
-
-                  <div class="pa-3">
-                    <v-textarea
-                      v-model="drafts[c.id]"
-                      label="Повідомлення"
-                      rows="2"
-                      auto-grow
-                      variant="outlined"
-                      density="compact"
-                      hide-details
-                      @keydown.enter.exact.prevent="sendMessage(c)"
-                    />
-
-                    <div class="d-flex align-center mt-2">
-                      <v-btn variant="text" @click.stop="pickImage(c.id)" :disabled="sendingMap[c.id]">
-                        <v-icon class="mr-1">mdi-image</v-icon>
-                        Фото
-                      </v-btn>
-
-                      <input
-                        :ref="setFileInputRef(c.id)"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        class="d-none"
-                        @change="onFileSelected(c.id, $event)"
+                    <div class="pa-3">
+                      <v-textarea
+                        v-model="drafts[c.id]"
+                        label="Повідомлення"
+                        rows="2"
+                        auto-grow
+                        variant="outlined"
+                        density="compact"
+                        hide-details
+                        @keydown.enter.exact.prevent="sendMessage(c)"
                       />
 
-                      <div v-if="selectedFiles[c.id]" class="text-caption text-grey ml-2">
-                        {{ selectedFiles[c.id].name }}
+                      <div class="d-flex align-center mt-2">
+                        <v-btn variant="text" @click.stop="pickImage(c.id)" :disabled="sendingMap[c.id]">
+                          <v-icon class="mr-1">mdi-image</v-icon>
+                          Фото
+                        </v-btn>
+
+                        <input
+                          :ref="setFileInputRef(c.id)"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          class="d-none"
+                          @change="onFileSelected(c.id, $event)"
+                        />
+
+                        <div v-if="selectedFiles[c.id]" class="text-caption text-grey ml-2">
+                          {{ selectedFiles[c.id].name }}
+                        </div>
+
+                        <v-spacer />
+
+                        <v-btn
+                          color="primary"
+                          :loading="sendingMap[c.id]"
+                          :disabled="sendingMap[c.id] || (!((drafts[c.id] || '').trim()) && !selectedFiles[c.id])"
+                          @click.stop="sendMessage(c)"
+                        >
+                          Надіслати
+                        </v-btn>
                       </div>
-
-                      <v-spacer />
-
-                      <v-btn
-                        color="primary"
-                        :loading="sendingMap[c.id]"
-                        :disabled="sendingMap[c.id] || (!((drafts[c.id] || '').trim()) && !selectedFiles[c.id])"
-                        @click.stop="sendMessage(c)"
-                      >
-                        Надіслати
-                      </v-btn>
                     </div>
-                  </div>
-                </v-sheet>
-              </div>
-            </v-expand-transition>
-          </div>
-        </TransitionGroup>
+                  </v-sheet>
+                </div>
+              </v-expand-transition>
+            </div>
+          </TransitionGroup>
 
-        <v-list-item v-if="!loading && sortedConversations.length === 0">
-          <v-list-item-title class="text-grey">Діалогів поки немає</v-list-item-title>
-        </v-list-item>
-      </v-list>
-    </v-card>
+          <v-list-item v-if="!loading && pagedSortedConversations.length === 0">
+            <v-list-item-title class="text-grey">Діалогів поки немає</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-card>
+
+      <div class="d-flex justify-center mt-4" v-if="showChatPagination">
+        <v-pagination
+          v-model="chatPage"
+          :length="chatLastPage"
+          @update:model-value="onChatPageChange"
+        />
+      </div>
+    </template>
 
     <v-dialog v-model="reportDialog.open" max-width="520">
       <v-card>
@@ -475,6 +531,8 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import apiClient from '@/api';
 import { useAuthStore } from '@/stores/authStore';
+import AdminInboxTab from '@/components/messages/AdminInboxTab.vue';
+import AdminComposeTab from '@/components/messages/AdminComposeTab.vue';
 
 const theme = useTheme();
 const isDark = computed(() => theme.global.current.value.dark);
@@ -485,6 +543,12 @@ const CHAT_TIME_ZONE = 'Europe/Kyiv';
 const loading = ref(false);
 const error = ref('');
 const conversations = ref([]);
+
+const adminInboxRef = ref(null);
+const adminComposeRef = ref(null);
+
+const adminUnreadCount = ref(0);
+const refreshLoading = ref(false);
 
 const isAdminOrManager = computed(() => authStore.hasRole('admin') || authStore.hasRole('manager'));
 const activeTab = ref('my');
@@ -501,6 +565,17 @@ const selectedFiles = ref({});
 const fileInputRefs = ref({});
 
 const frozenOrder = ref(null);
+
+/** pagination state for tabs "Мої повідомлення" / "Всі повідомлення" */
+const chatPage = ref(1);
+const chatPerPageUi = ref(25);
+const chatPerPageOptions = [
+  { title: '25', value: 25 },
+  { title: '50', value: 50 },
+  { title: '100', value: 100 },
+  { title: 'Усі', value: -1 },
+];
+const chatPerPage = computed(() => (chatPerPageUi.value === -1 ? Number.MAX_SAFE_INTEGER : Number(chatPerPageUi.value || 25)));
 
 const reportDialog = ref({
   open: false,
@@ -540,6 +615,19 @@ const snackbar = ref({
   timeout: 3200,
 });
 
+const myUnreadThreadsCount = computed(() => {
+  if (!conversations.value?.length) return 0;
+  if (activeTab.value === 'all' && isAdminOrManager.value) return 0;
+
+  const me = authStore.user?.id;
+  if (!me) return 0;
+
+  return conversations.value.filter(c => {
+    if ((c.unread_count || 0) <= 0) return false;
+    return c.buyer_id === me || c.seller_id === me;
+  }).length;
+});
+
 function showSnackbar(text, color = 'info', timeout = 3200) {
   snackbar.value.text = text;
   snackbar.value.color = color;
@@ -553,7 +641,11 @@ watch(activeTab, async () => {
   openedConversationId.value = null;
   frozenOrder.value = null;
   messagesMap.value = {};
-  await loadConversations();
+  chatPage.value = 1;
+
+  if (activeTab.value === 'my' || activeTab.value === 'all') {
+    await loadConversations();
+  }
 });
 
 function setChatBodyRef(conversationId) {
@@ -589,15 +681,14 @@ function isResolveChatMine(m) {
 }
 
 const baseSortedConversations = computed(() => {
-  // Вкладка "Всі повідомлення" (модерация): приоритет по жалобам
   if (isModerationAllTab.value) {
     const rank = (c) => {
-      const open = reportsOpenCount(c);      // не обработанные
-      const total = reportsTotalCount(c);    // все жалобы
+      const open = reportsOpenCount(c);
+      const total = reportsTotalCount(c);
 
-      if (open > 0) return 0;  // 1) вверху: есть открытые жалобы
-      if (total > 0) return 1; // 2) далее: жалобы есть, но все обработаны
-      return 2;                // 3) внизу: жалоб нет
+      if (open > 0) return 0;
+      if (total > 0) return 1;
+      return 2;
     };
 
     return [...conversations.value].sort((a, b) => {
@@ -605,19 +696,16 @@ const baseSortedConversations = computed(() => {
       const rb = rank(b);
       if (ra !== rb) return ra - rb;
 
-      // внутри группы: непрочитанные выше
       const aUnread = showUnreadHighlight(a) ? 1 : 0;
       const bUnread = showUnreadHighlight(b) ? 1 : 0;
       if (aUnread !== bUnread) return bUnread - aUnread;
 
-      // затем по дате обновления
       const aTs = a.updated_at ? new Date(a.updated_at).getTime() : 0;
       const bTs = b.updated_at ? new Date(b.updated_at).getTime() : 0;
       return bTs - aTs;
     });
   }
 
-  // Вкладка "Мої повідомлення": стара логика (приоритет непрочитанных)
   return [...conversations.value].sort((a, b) => {
     const aUnread = showUnreadHighlight(a) ? 1 : 0;
     const bUnread = showUnreadHighlight(b) ? 1 : 0;
@@ -637,6 +725,30 @@ const sortedConversations = computed(() => {
   const rest = baseSortedConversations.value.filter(c => !frozenOrder.value.includes(c.id));
   return [...ordered, ...rest];
 });
+
+const chatLastPage = computed(() => {
+  if (chatPerPageUi.value === -1) return 1;
+  return Math.max(1, Math.ceil(sortedConversations.value.length / chatPerPage.value));
+});
+
+const showChatPagination = computed(() => {
+  return chatPerPageUi.value !== -1 && sortedConversations.value.length > chatPerPage.value;
+});
+
+const pagedSortedConversations = computed(() => {
+  if (chatPerPageUi.value === -1) return sortedConversations.value;
+  const start = (chatPage.value - 1) * chatPerPage.value;
+  return sortedConversations.value.slice(start, start + chatPerPage.value);
+});
+
+function onChatPerPageChange() {
+  chatPage.value = 1;
+  openedConversationId.value = null;
+}
+
+function onChatPageChange() {
+  openedConversationId.value = null;
+}
 
 function showUnreadHighlight(c) {
   return (c.unread_count || 0) > 0;
@@ -771,6 +883,10 @@ async function loadConversations() {
 
     const { data } = await apiClient.get('/conversations', { params });
     conversations.value = Array.isArray(data) ? data : (data.items || []);
+
+    if (chatPage.value > chatLastPage.value) {
+      chatPage.value = chatLastPage.value;
+    }
   } catch {
     error.value = 'Не вдалося завантажити діалоги';
   } finally {
@@ -1123,9 +1239,57 @@ function closeImagePreview() {
   imagePreview.value.url = '';
 }
 
+function handleAdminUnreadChanged(count) {
+  adminUnreadCount.value = Number(count || 0);
+}
+
+async function loadAdminUnreadCount() {
+  if (isAdminOrManager.value) {
+    adminUnreadCount.value = 0;
+    return;
+  }
+
+  try {
+    const { data } = await apiClient.get('/admin-messages/unread-count');
+    adminUnreadCount.value = Number(data?.unread_count || 0);
+  } catch {
+    adminUnreadCount.value = 0;
+  }
+}
+
+async function refreshActiveTab() {
+  refreshLoading.value = true;
+  try {
+    if (activeTab.value === 'admin-inbox' && !isAdminOrManager.value) {
+      await adminInboxRef.value?.loadInbox?.();
+      await loadAdminUnreadCount();
+      return;
+    }
+
+    if (activeTab.value === 'admin-compose' && isAdminOrManager.value) {
+      await adminComposeRef.value?.loadSent?.();
+      return;
+    }
+
+    await loadConversations();
+  } finally {
+    refreshLoading.value = false;
+  }
+}
+
 onMounted(async () => {
-  if (!isAdminOrManager.value) activeTab.value = 'my';
+  if (isAdminOrManager.value) {
+    if (!['my', 'all', 'admin-compose'].includes(activeTab.value)) {
+      activeTab.value = 'my';
+    }
+  } else {
+    if (!['my', 'admin-inbox'].includes(activeTab.value)) {
+      activeTab.value = 'my';
+    }
+  }
+
   await loadConversations();
+  await loadAdminUnreadCount();
 });
 </script>
 

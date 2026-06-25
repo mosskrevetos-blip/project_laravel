@@ -6,13 +6,15 @@ export const useMessageStore = defineStore('messageStore', {
     conversations: [],
     currentConversation: null,
     messages: [],
-    messagesPagination: null, // laravel paginate
+    messagesPagination: null,
     loadingConversations: false,
     loadingMessages: false,
     sending: false,
     drawerOpen: false,
-    // контекст товара для чата
     currentProductContextId: null,
+
+    // Непрочитанные сообщения от администратора/менеджера
+    adminUnreadCount: 0,
   }),
 
   getters: {
@@ -23,11 +25,21 @@ export const useMessageStore = defineStore('messageStore', {
     unreadThreadsCount(state) {
       return state.conversations.filter(c => (c.unread_count || 0) > 0).length;
     },
+
+    // Сумма непрочитанных: диалоги + админ-сообщения
+    totalUnreadCombined(state) {
+      const unreadDialogsCount = state.conversations.filter(c => (c.unread_count || 0) > 0).length;
+      return unreadDialogsCount + Number(state.adminUnreadCount || 0);
+    },
+
+    // Если где-то нужен "кол-во потоков" + админ-кол-во
+    unreadThreadsCountCombined(state) {
+      const dialogsUnreadThreads = state.conversations.filter(c => (c.unread_count || 0) > 0).length;
+      return dialogsUnreadThreads + Number(state.adminUnreadCount || 0);
+    },
   },
 
   actions: {
-    // Безопасно нормализуем структуру conversation,
-    // чтобы ChatDrawer мог работать с полями по жалобам даже если backend что-то не прислал.
     normalizeConversation(raw) {
       const c = raw || {};
 
@@ -45,6 +57,24 @@ export const useMessageStore = defineStore('messageStore', {
         reports_open_count: reportsOpen,
         last_report: lastReport,
       };
+    },
+
+    async loadAdminUnreadCount({ forceForRoles = false } = {}) {
+      try {
+        const { useAuthStore } = await import('@/stores/authStore');
+        const authStore = useAuthStore();
+
+        // Для admin/manager unread admin-messages не считаем (0)
+        if (!forceForRoles && (authStore.hasRole('admin') || authStore.hasRole('manager'))) {
+          this.adminUnreadCount = 0;
+          return;
+        }
+
+        const { data } = await apiClient.get('/admin-messages/unread-count');
+        this.adminUnreadCount = Number(data?.unread_count || 0);
+      } catch {
+        this.adminUnreadCount = 0;
+      }
     },
 
     async refreshCurrentConversation() {
@@ -73,6 +103,9 @@ export const useMessageStore = defineStore('messageStore', {
       try {
         const { data } = await apiClient.get('/conversations');
         this.conversations = Array.isArray(data) ? data : [];
+
+        // Подтягиваем unread admin messages вместе с диалогами
+        await this.loadAdminUnreadCount();
       } finally {
         this.loadingConversations = false;
       }
@@ -97,8 +130,6 @@ export const useMessageStore = defineStore('messageStore', {
       await this.loadMessages(this.currentConversation.id);
       await this.markRead(this.currentConversation.id);
       await this.loadConversations();
-
-      // важно: подтянуть show-ответ с агрегатами жалоб (reports_total_count, last_report и т.д.)
       await this.refreshCurrentConversation();
     },
 
@@ -109,9 +140,8 @@ export const useMessageStore = defineStore('messageStore', {
           params: { per_page: perPage },
         });
 
-        // Laravel paginate: data.data = items
         this.messagesPagination = data;
-        this.messages = (data?.data || []).slice().reverse(); // в UI снизу вверх
+        this.messages = (data?.data || []).slice().reverse();
       } finally {
         this.loadingMessages = false;
       }
@@ -137,13 +167,9 @@ export const useMessageStore = defineStore('messageStore', {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        // append to bottom
         this.messages.push(data);
 
-        // обновим список диалогов (last message / sorting / unread)
         await this.loadConversations();
-
-        // подстрахуем актуальность текущего диалога (updated_at, counters, reports summary)
         await this.refreshCurrentConversation();
       } finally {
         this.sending = false;

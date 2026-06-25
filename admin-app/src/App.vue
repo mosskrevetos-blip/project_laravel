@@ -18,7 +18,6 @@
     </v-app-bar>
 
     <!-- Бокова панель -->
-    <!-- v-if="authStore.isAuthenticated" - якщо користувач авторизован, то панель відображається-->
     <v-navigation-drawer
       v-if="authStore.isAuthenticated"
       v-model="drawer" 
@@ -51,8 +50,8 @@
               <span>{{ item.title }}</span>
 
               <v-badge
-                v-if="item.title === 'Повідомлення' && !loadingConversations && unreadThreadsCount > 0"
-                :content="unreadThreadsCount"
+                v-if="item.title === 'Повідомлення' && !loadingConversations && !loadingAdminUnread && unreadTotalForBadge > 0"
+                :content="unreadTotalForBadge"
                 color="red"
                 inline
               />
@@ -91,15 +90,24 @@ import { useTheme } from 'vuetify';
 import { useAuthStore } from '@/stores/authStore';
 import { navItems } from '@/navigation/menu.js';
 
-
 const authStore = useAuthStore();
 const drawer = ref(true); 
 const rail = ref(false); 
 const router = useRouter();
+
 const conversations = ref([]);
 const loadingConversations = ref(false);
+
+const adminUnreadCount = ref(0);
+const loadingAdminUnread = ref(false);
+
 const unreadThreadsCount = computed(() => {
   return conversations.value.filter(c => (c.unread_count || 0) > 0).length;
+});
+
+// итог: количество новых диалогов + unread админ-сообщения
+const unreadTotalForBadge = computed(() => {
+  return Number(unreadThreadsCount.value || 0) + Number(adminUnreadCount.value || 0);
 });
 
 async function loadConversationsForBadge() {
@@ -113,11 +121,34 @@ async function loadConversationsForBadge() {
     const { data } = await apiClient.get('/conversations');
     conversations.value = Array.isArray(data) ? data : (data.items || []);
   } catch (e) {
-    // тихо игнорируем для UI
     conversations.value = [];
   } finally {
     loadingConversations.value = false;
   }
+}
+
+async function loadAdminUnreadForBadge() {
+  if (!authStore.isAuthenticated) {
+    adminUnreadCount.value = 0;
+    return;
+  }
+
+  loadingAdminUnread.value = true;
+  try {
+    const { data } = await apiClient.get('/admin-messages/unread-count');
+    adminUnreadCount.value = Number(data?.unread_count || 0);
+  } catch (e) {
+    adminUnreadCount.value = 0;
+  } finally {
+    loadingAdminUnread.value = false;
+  }
+}
+
+async function loadAllMessageBadges() {
+  await Promise.allSettled([
+    loadConversationsForBadge(),
+    loadAdminUnreadForBadge(),
+  ]);
 }
 
 let conversationsTimer = null;
@@ -125,7 +156,7 @@ let conversationsTimer = null;
 function startConversationsPolling() {
   if (conversationsTimer) return;
   conversationsTimer = window.setInterval(() => {
-    loadConversationsForBadge();
+    loadAllMessageBadges();
   }, 30000); // каждые 30 сек
 }
 
@@ -142,9 +173,7 @@ function goToPublicSite() {
 }
 
 // --- Логика для синхронизации и выхода ---
-
 const handleVisibilityChange = () => {
-  // Если вкладка стала видимой, перепроверяем статус
   if (document.visibilityState === 'visible') {
     authStore.revalidateUser();
   }
@@ -155,6 +184,7 @@ watch(
   async (isAuth, wasAuth) => {
     if (wasAuth === true && isAuth === false) {
       conversations.value = [];
+      adminUnreadCount.value = 0;
       stopConversationsPolling();
 
       if (router.currentRoute.value.name !== 'login') {
@@ -164,51 +194,43 @@ watch(
     }
 
     if (isAuth) {
-      await loadConversationsForBadge();
+      await loadAllMessageBadges();
       startConversationsPolling();
     }
   },
   { immediate: true }
 );
 
-// Функція для перевірки прав ---
+// Функція для перевірки прав
 function shouldShowItem(item) {
-  // Если для пункта меню не указаны роли, показываем его всем
   if (!item.requiredRoles || item.requiredRoles.length === 0) {
     return true;
   }
-  // Иначе, проверяем, есть ли у пользователя хотя бы одна из требуемых ролей
   return item.requiredRoles.some(role => authStore.hasRole(role));
 }
 
-//Кирування темою
+// Керування темою
+const theme = useTheme();
 
-const theme = useTheme(); // Отримую доступ до керування темою
-
-// Функція для перемикання теми
 function toggleTheme() {
   theme.global.name.value = theme.global.name.value === 'dark' ? 'light' : 'dark';
 }
 
 onMounted(async () => {
-  // Логика темы
   const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   if (prefersDark) {
     theme.global.name.value = 'dark';
   }
 
   if (authStore.isAuthenticated) {
-    await loadConversationsForBadge();
+    await loadAllMessageBadges();
   }
   
-  // Добавляем слушатель
   document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
-// Добавляем очистку слушателя
 onUnmounted(() => {
   stopConversationsPolling();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
-
 </script>
