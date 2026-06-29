@@ -45,4 +45,10 @@ export const navItems = [
     to: { name: 'favorites' },
     requiredRoles: [], 
   },
+  {
+  title: 'Модерація коментарів',
+    icon: 'mdi-comment-alert-outline',
+    to: { name: 'comment-moderation' },
+    requiredRoles: ['admin', 'manager'],
+  },
 ];

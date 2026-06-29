@@ -87,6 +87,18 @@
         </v-col>
       </v-row>
     </v-container>
+
+    <v-container>
+      <v-row>
+        <v-col cols="12">
+          <ProductCommentsSection
+            v-if="product"
+            :product-id="product.id"
+          />
+        </v-col>
+      </v-row>
+    </v-container>
+
     <!-- ✅ snackbar як у карточці товару -->
     <v-snackbar
       v-model="snackbar"
@@ -111,8 +123,10 @@ import { useCartStore } from '@/stores/cartStore';
 import { useFavoriteStore } from '@/stores/favoriteStore';
 import ProductImageGallery from '@/components/product/ProductImageGallery.vue';
 import FavoriteSellerButton from '@/components/product/FavoriteSellerButton.vue';
+import ProductCommentsSection from '@/components/product/ProductCommentsSection.vue';
 import { useMessageStore } from '@/stores/messageStore';
 import { useAuthStore } from '@/stores/authStore';
+
 
 const route = useRoute();
 const router = useRouter();

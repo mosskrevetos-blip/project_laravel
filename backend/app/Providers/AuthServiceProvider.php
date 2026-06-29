@@ -12,6 +12,10 @@ use App\Policies\CategoryPolicy;
 use App\Models\User;
 use App\Policies\UserPolicy;
 use App\Models\Order;
+use App\Models\ProductComment;
+use App\Policies\ProductCommentPolicy;
+use App\Models\ProductCommentReport;
+use App\Policies\ProductCommentReportPolicy;
 use App\Policies\OrderPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -30,6 +34,8 @@ class AuthServiceProvider extends ServiceProvider
         User::class => UserPolicy::class,
         Order::class => OrderPolicy::class,
         Attribute::class => AttributePolicy::class,
+        ProductComment::class => ProductCommentPolicy::class,
+        ProductCommentReport::class => ProductCommentReportPolicy::class,
     ];
 
     /**
@@ -37,6 +43,8 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->registerPolicies();
+        
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
             return config('app.frontend_url')."/password-reset/{$token}?email={$notifiable->getEmailForPasswordReset()}";
         });

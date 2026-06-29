@@ -64,6 +64,12 @@ const router = createRouter({
       path: '/',
       redirect: '/products',
     },
+    {
+      path: '/comment-moderation',
+      name: 'comment-moderation',
+      component: () => import('../views/CommentModerationView.vue'),
+      meta: { requiresAuth: true, roles: ['admin', 'manager'] },
+    },
   ],
 });
 
@@ -71,21 +77,29 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
-  // 1. ПЕРЕД ЛЮБОЙ ПРОВЕРКОЙ, МЫ ЗАСТАВЛЯЕМ ЕГО ДОЖДАТЬСЯ
-  //    завершения запроса на получение пользователя.
-  //    `getUser` сам проверит, нужно ли делать запрос к API.
   await authStore.getUser();
 
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
 
   if (requiresAuth && !authStore.isAuthenticated) {
-    // Теперь эта проверка сработает только ПОСЛЕ того, как `getUser` завершится.
-    next({ name: 'login' });
-  } else if (to.name === 'login' && authStore.isAuthenticated) {
-    next({ name: 'products' });
-  } else {
-    next();
+    return next({ name: 'login' });
   }
+
+  if (to.name === 'login' && authStore.isAuthenticated) {
+    return next({ name: 'products' });
+  }
+
+  // NEW: role-check
+  const requiredRoles = to.meta?.roles || [];
+  if (requiredRoles.length > 0) {
+    // authStore.hasRole('admin') / hasRole('manager')
+    const allowed = requiredRoles.some(role => authStore.hasRole?.(role));
+    if (!allowed) {
+      return next({ name: 'products' }); // или на 403-страницу
+    }
+  }
+
+  next();
 });
 
 export default router;

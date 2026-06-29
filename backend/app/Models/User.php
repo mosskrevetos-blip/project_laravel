@@ -123,4 +123,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(SearchHistory::class);
     }
+
+    public function productComments()
+    {
+        return $this->hasMany(ProductComment::class, 'author_id');
+    }
+
+    public function productCommentReactions()
+    {
+        return $this->hasMany(ProductCommentReaction::class, 'user_id');
+    }
+
+    public function productCommentReports()
+    {
+        return $this->hasMany(ProductCommentReport::class, 'reporter_id');
+    }
 }

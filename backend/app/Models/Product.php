@@ -182,4 +182,24 @@ class Product extends Model
         return $this->belongsToMany(User::class, 'favorites')->withTimestamps();
     }
 
+
+    public function comments()
+    {
+        return $this->hasMany(ProductComment::class, 'product_id');
+    }
+
+    public function reviews()
+    {
+        return $this->hasMany(ProductComment::class, 'product_id')
+            ->whereNull('parent_id')
+            ->where('type', 'review');
+    }
+
+    public function questions()
+    {
+        return $this->hasMany(ProductComment::class, 'product_id')
+            ->whereNull('parent_id')
+            ->where('type', 'question');
+    }
+
 }

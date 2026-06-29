@@ -18,6 +18,11 @@ use App\Http\Controllers\Api\PresenceController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\ConversationReportController;
 use App\Http\Controllers\Api\AdminMessageController;
+use App\Http\Controllers\Api\ProductCommentController;
+use App\Http\Controllers\Api\ProductCommentReactionController;
+use App\Http\Controllers\Api\ProductCommentReportController;
+use App\Http\Controllers\Api\AdminProductCommentController;
+use App\Http\Controllers\Api\AdminProductCommentReportController;
 
 
 //==========================================================================
@@ -51,6 +56,9 @@ Route::get('/categories/{category}', [CategoryController::class, 'show'])->middl
 // Пошук товарів
 Route::get('/search/products', [SearchController::class, 'products']);
 Route::get('/search/suggestions', [SearchController::class, 'suggestions']);
+
+// Коментарі товару (публічний список, з урахуванням видимості)
+Route::get('/products/{product}/comments', [ProductCommentController::class, 'index']);
 
 
 //==========================================================================
@@ -154,6 +162,42 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/search/history/sync', [SearchController::class, 'syncHistory']);
     Route::delete('/search/history', [SearchController::class, 'clearHistory']);
     Route::delete('/search/history/{history}', [SearchController::class, 'destroyHistoryItem']);
+
+
+    // ==========================================================================
+    // Коментарі до товарів (review/question/answer/reaction/report)
+    // ==========================================================================
+
+    // Створення кореневого коментаря (review/question)
+    Route::post('/products/{product}/comments', [ProductCommentController::class, 'store']);
+
+    // Відповідь продавця/адміністрації на кореневий коментар
+    Route::post('/comments/{comment}/answers', [ProductCommentController::class, 'storeAnswer']);
+
+    // Реакції like/dislike
+    Route::post('/comments/{comment}/reaction', [ProductCommentReactionController::class, 'upsert']);
+
+    // Скарга на коментар
+    Route::post('/comments/{comment}/report', [ProductCommentReportController::class, 'store']);
+
+    // ==========================================================================
+    // Адмін-модерація коментарів (admin/manager)
+    // ==========================================================================
+    Route::post('/admin/comments/{comment}/moderate', [AdminProductCommentController::class, 'moderate'])
+        ->middleware('can:moderate,comment');
+
+    Route::put('/admin/comments/{comment}', [AdminProductCommentController::class, 'update'])
+        ->middleware('can:updateByAdmin,comment');
+
+    Route::delete('/admin/comments/{comment}', [AdminProductCommentController::class, 'destroy'])
+        ->middleware('can:deleteByAdmin,comment');
+
+    // Тікети скарг на коментарі
+    Route::get('/admin/comment-reports', [AdminProductCommentReportController::class, 'index'])
+        ->middleware('can:viewAny,App\Models\ProductCommentReport');
+
+    Route::post('/admin/comment-reports/{report}/resolve', [AdminProductCommentReportController::class, 'resolve'])
+        ->middleware('can:resolve,report');
 
 });
 
