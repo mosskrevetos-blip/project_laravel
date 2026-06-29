@@ -8,6 +8,8 @@ use App\Http\Requests\ProductComments\ModerateProductCommentRequest;
 use App\Models\ProductComment;
 use App\Services\ProductCommentService;
 use Illuminate\Http\JsonResponse;
+use App\Http\Resources\ProductCommentResource;
+use Illuminate\Http\Request;
 
 class AdminProductCommentController extends Controller
 {
@@ -74,6 +76,41 @@ class AdminProductCommentController extends Controller
         return response()->json([
             'message' => 'Коментар видалено.',
             'ok' => true,
+        ]);
+    }
+
+    /**
+     * GET /api/admin/comments/moderation
+     * Список коментарів для модерації.
+     */
+    public function moderationList(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', ProductComment::class);
+
+        $perPage = max(1, min((int)$request->query('per_page', 20), 100));
+
+        $query = ProductComment::query()
+            ->whereNull('parent_id')
+            ->whereIn('type', ['review', 'question'])
+            ->with(['author:id,name'])
+            ->orderByDesc('created_at');
+
+        if ($status = $request->query('status')) {
+            $query->where('moderation_status', $status);
+        }
+
+        if ($type = $request->query('type')) {
+            $query->where('type', $type);
+        }
+
+        $paginator = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => ProductCommentResource::collection($paginator->items())->resolve(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
         ]);
     }
 }

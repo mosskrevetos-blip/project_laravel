@@ -3,14 +3,7 @@
     <v-card elevation="1">
       <v-card-title class="d-flex align-center justify-space-between flex-wrap ga-2">
         <div class="text-h6">Відгуки та питання</div>
-        <v-btn
-          size="small"
-          variant="outlined"
-          :loading="loading"
-          @click="reload"
-        >
-          Оновити
-        </v-btn>
+        <v-btn size="small" variant="outlined" :loading="loading" @click="reload">Оновити</v-btn>
       </v-card-title>
 
       <v-divider />
@@ -26,8 +19,10 @@
         <v-row class="mb-2">
           <v-col cols="12" md="3">
             <v-select
-              v-model="filters.sort"
+              v-model="localFilters.sort"
               :items="sortOptions"
+              item-title="title"
+              item-value="value"
               label="Сортування"
               density="comfortable"
               variant="outlined"
@@ -37,7 +32,7 @@
 
           <v-col cols="12" md="3" v-if="activeType === 'review'">
             <v-select
-              v-model="filters.rating"
+              v-model="localFilters.rating"
               :items="ratingOptions"
               label="Рейтинг"
               density="comfortable"
@@ -48,25 +43,15 @@
           </v-col>
 
           <v-col cols="12" md="3">
-            <v-checkbox
-              v-model="filters.with_photos"
-              label="Тільки з фото"
-              density="compact"
-              hide-details
-            />
+            <v-checkbox v-model="localFilters.with_photos" label="Тільки з фото" density="compact" hide-details />
           </v-col>
 
           <v-col cols="12" md="3">
-            <v-checkbox
-              v-model="filters.verified"
-              label="Підтверджена покупка"
-              density="compact"
-              hide-details
-            />
+            <v-checkbox v-model="localFilters.verified" label="Підтверджена покупка" density="compact" hide-details />
           </v-col>
         </v-row>
 
-        <div class="mb-4">
+        <div class="mb-4 d-flex ga-2">
           <v-btn color="primary" @click="applyFilters">Застосувати</v-btn>
         </div>
 
@@ -148,9 +133,7 @@
             </v-row>
 
             <div class="d-flex ga-2">
-              <v-btn color="primary" :loading="submitLoading" @click="submitComment">
-                Надіслати
-              </v-btn>
+              <v-btn color="primary" :loading="createLoading" @click="submitComment">Надіслати</v-btn>
               <v-btn variant="text" @click="resetForm">Очистити</v-btn>
             </div>
           </v-card-text>
@@ -161,12 +144,12 @@
           <v-progress-circular indeterminate color="primary" />
         </div>
 
-        <div v-else-if="!comments.length" class="py-6 text-medium-emphasis text-center">
+        <div v-else-if="!items.length" class="py-6 text-medium-emphasis text-center">
           Поки немає записів.
         </div>
 
         <div v-else class="d-flex flex-column ga-4">
-          <v-card v-for="item in comments" :key="item.id" variant="outlined">
+          <v-card v-for="item in items" :key="item.id" variant="outlined">
             <v-card-text>
               <div class="d-flex justify-space-between align-start ga-4">
                 <div>
@@ -182,11 +165,10 @@
                 </div>
               </div>
 
-              <div v-if="item.body" class="mt-3" style="white-space: pre-wrap;">{{ item.body }}</div>
+              <div v-if="item.body" class="mt-3 body">{{ item.body }}</div>
               <div v-if="item.pros" class="mt-2 text-body-2"><strong>Переваги:</strong> {{ item.pros }}</div>
               <div v-if="item.cons" class="mt-1 text-body-2"><strong>Недоліки:</strong> {{ item.cons }}</div>
 
-              <!-- media -->
               <div v-if="item.media?.length" class="mt-3 d-flex flex-wrap ga-2">
                 <template v-for="m in item.media" :key="m.id">
                   <v-img
@@ -209,12 +191,11 @@
                 </template>
               </div>
 
-              <!-- actions -->
               <div class="mt-4 d-flex flex-wrap ga-2">
-                <v-btn size="small" variant="tonal" @click="react(item.id, 'like')">
+                <v-btn size="small" variant="tonal" :loading="actionLoading" @click="onReact(item.id, 'like')">
                   👍 {{ item.likes_count || 0 }}
                 </v-btn>
-                <v-btn size="small" variant="tonal" @click="react(item.id, 'dislike')">
+                <v-btn size="small" variant="tonal" :loading="actionLoading" @click="onReact(item.id, 'dislike')">
                   👎 {{ item.dislikes_count || 0 }}
                 </v-btn>
                 <v-btn size="small" color="warning" variant="text" @click="openReport(item)">
@@ -222,18 +203,12 @@
                 </v-btn>
               </div>
 
-              <!-- answers -->
               <div v-if="item.answers?.length" class="mt-4 d-flex flex-column ga-2">
-                <v-alert
-                  v-for="ans in item.answers"
-                  :key="ans.id"
-                  type="info"
-                  variant="tonal"
-                >
+                <v-alert v-for="ans in item.answers" :key="ans.id" type="info" variant="tonal">
                   <div class="text-caption mb-1">
                     Відповідь: {{ ans.answer_origin === 'administration' ? 'Адміністрація' : 'Продавець' }}
                   </div>
-                  <div style="white-space: pre-wrap;">{{ ans.body }}</div>
+                  <div class="body">{{ ans.body }}</div>
                 </v-alert>
               </div>
             </v-card-text>
@@ -242,15 +217,14 @@
 
         <div class="d-flex justify-center mt-4" v-if="pagination.last_page > 1">
           <v-pagination
-            v-model="filters.page"
+            v-model="localFilters.page"
             :length="pagination.last_page"
-            @update:model-value="loadComments"
+            @update:model-value="onPageChange"
           />
         </div>
       </v-card-text>
     </v-card>
 
-    <!-- Report dialog -->
     <v-dialog v-model="reportDialog.open" max-width="560">
       <v-card>
         <v-card-title>Скарга на коментар #{{ reportDialog.commentId }}</v-card-title>
@@ -268,7 +242,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="closeReportDialog">Скасувати</v-btn>
-          <v-btn color="warning" @click="submitReport">Надіслати</v-btn>
+          <v-btn color="warning" :loading="reportLoading" @click="submitReport">Надіслати</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -280,33 +254,32 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch, onMounted } from 'vue';
-import apiClient from '@/api';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useProductCommentsStore } from '@/stores/productCommentsStore';
 import { useAuthStore } from '@/stores/authStore';
 
 const props = defineProps({
-  productId: {
-    type: [Number, String],
-    required: true,
-  },
+  productId: { type: [Number, String], required: true },
 });
 
 const authStore = useAuthStore();
+const commentsStore = useProductCommentsStore();
+
+const {
+  items,
+  loading,
+  error,
+  pagination,
+  filters,
+  createLoading,
+  actionLoading,
+  reportLoading,
+} = storeToRefs(commentsStore);
 
 const activeType = ref('review');
-const loading = ref(false);
-const submitLoading = ref(false);
 
-const comments = ref([]);
-const pagination = reactive({
-  current_page: 1,
-  last_page: 1,
-  per_page: 10,
-  total: 0,
-});
-
-const filters = reactive({
-  type: 'review',
+const localFilters = reactive({
   sort: 'date_desc',
   rating: null,
   with_photos: false,
@@ -315,14 +288,8 @@ const filters = reactive({
   per_page: 10,
 });
 
-const sortOptions = ref([
-  { title: 'Нові спочатку', value: 'date_desc' },
-  { title: 'Старі спочатку', value: 'date_asc' },
-  { title: 'Найкорисніші', value: 'helpful_desc' },
-  { title: 'Найменш корисні', value: 'helpful_asc' },
-]);
-
 const ratingOptions = [5, 4, 3, 2, 1];
+const sortOptions = ref([]);
 
 const form = reactive({
   rating: null,
@@ -373,46 +340,37 @@ function buildSortOptions() {
       { title: 'Найкорисніші', value: 'helpful_desc' },
       { title: 'Найменш корисні', value: 'helpful_asc' },
     ];
-    if (filters.sort === 'rating_desc' || filters.sort === 'rating_asc') {
-      filters.sort = 'date_desc';
+
+    if (localFilters.sort === 'rating_desc' || localFilters.sort === 'rating_asc') {
+      localFilters.sort = 'date_desc';
     }
   }
 }
 
 async function loadComments() {
-  loading.value = true;
   try {
-    filters.type = activeType.value;
-
-    const params = {
-      type: filters.type,
-      sort: filters.sort,
-      page: filters.page,
-      per_page: filters.per_page,
-      with_photos: filters.with_photos ? 1 : 0,
-      verified: filters.verified ? 1 : 0,
-    };
-
-    if (activeType.value === 'review' && filters.rating) {
-      params.rating = filters.rating;
-    }
-
-    const { data } = await apiClient.get(`/products/${props.productId}/comments`, { params });
-
-    comments.value = data.data || [];
-    pagination.current_page = data.current_page || 1;
-    pagination.last_page = data.last_page || 1;
-    pagination.per_page = data.per_page || 10;
-    pagination.total = data.total || 0;
-  } catch (e) {
-    showSnack('Не вдалося завантажити коментарі', 'error');
-  } finally {
-    loading.value = false;
+    commentsStore.setType(activeType.value);
+    commentsStore.setFilters({
+      page: localFilters.page,
+      per_page: localFilters.per_page,
+      sort: localFilters.sort,
+      rating: activeType.value === 'review' ? localFilters.rating : null,
+      with_photos: localFilters.with_photos,
+      verified: localFilters.verified,
+    });
+    await commentsStore.fetchList();
+  } catch {
+    showSnack(error.value || 'Помилка завантаження', 'error');
   }
 }
 
 function applyFilters() {
-  filters.page = 1;
+  localFilters.page = 1;
+  loadComments();
+}
+
+function onPageChange(page) {
+  localFilters.page = page;
   loadComments();
 }
 
@@ -432,42 +390,26 @@ async function submitComment() {
     return;
   }
 
-  submitLoading.value = true;
   try {
-    await apiClient.getCsrfCookie();
-
-    const fd = new FormData();
-    fd.append('type', activeType.value);
-
-    if (activeType.value === 'review' && form.rating) {
-      fd.append('rating', String(form.rating));
-    }
-
-    if (form.body) fd.append('body', form.body);
-    if (activeType.value === 'review' && form.pros) fd.append('pros', form.pros);
-    if (activeType.value === 'review' && form.cons) fd.append('cons', form.cons);
-    if (form.youtube_url) fd.append('youtube_url', form.youtube_url);
-
-    (form.images || []).slice(0, 5).forEach((img) => {
-      fd.append('images[]', img);
-    });
-
-    await apiClient.post(`/products/${props.productId}/comments`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    await commentsStore.createComment({
+      type: activeType.value,
+      rating: form.rating,
+      body: form.body,
+      pros: form.pros,
+      cons: form.cons,
+      images: form.images,
+      youtube_url: form.youtube_url,
     });
 
     showSnack('Коментар відправлено на модерацію', 'success');
     resetForm();
     await loadComments();
-  } catch (e) {
-    const msg = e?.response?.data?.message || 'Не вдалося відправити коментар';
-    showSnack(msg, 'error');
-  } finally {
-    submitLoading.value = false;
+  } catch {
+    showSnack(error.value || 'Не вдалося відправити коментар', 'error');
   }
 }
 
-async function react(commentId, reaction) {
+async function onReact(commentId, reaction) {
   if (!authStore.isAuthenticated) {
     authStore.openLoginDialog?.();
     showSnack('Увійдіть, щоб оцінювати коментарі', 'warning');
@@ -475,17 +417,9 @@ async function react(commentId, reaction) {
   }
 
   try {
-    await apiClient.getCsrfCookie();
-    const { data } = await apiClient.post(`/comments/${commentId}/reaction`, { reaction });
-
-    const item = comments.value.find(c => c.id === commentId);
-    if (item && data?.data) {
-      item.likes_count = data.data.likes_count;
-      item.dislikes_count = data.data.dislikes_count;
-      item.helpfulness_score = data.data.helpfulness_score;
-    }
+    await commentsStore.react(commentId, reaction);
   } catch {
-    showSnack('Не вдалося зберегти реакцію', 'error');
+    showSnack(error.value || 'Не вдалося зберегти реакцію', 'error');
   }
 }
 
@@ -495,9 +429,9 @@ function openReport(item) {
     showSnack('Увійдіть, щоб надіслати скаргу', 'warning');
     return;
   }
+  reportDialog.open = true;
   reportDialog.commentId = item.id;
   reportDialog.reason = '';
-  reportDialog.open = true;
 }
 
 function closeReportDialog() {
@@ -508,15 +442,11 @@ function closeReportDialog() {
 
 async function submitReport() {
   try {
-    await apiClient.getCsrfCookie();
-    await apiClient.post(`/comments/${reportDialog.commentId}/report`, {
-      reason: reportDialog.reason,
-    });
-    showSnack('Скаргу надіслано', 'success');
+    await commentsStore.report(reportDialog.commentId, reportDialog.reason);
+    showSnack('Скаргу відправлено', 'success');
     closeReportDialog();
-  } catch (e) {
-    const msg = e?.response?.data?.message || 'Не вдалося надіслати скаргу';
-    showSnack(msg, 'error');
+  } catch {
+    showSnack(error.value || 'Не вдалося надіслати скаргу', 'error');
   }
 }
 
@@ -524,26 +454,32 @@ function reload() {
   loadComments();
 }
 
-watch(activeType, () => {
+watch(activeType, async () => {
   buildSortOptions();
-  filters.page = 1;
-  filters.rating = null;
-  loadComments();
+  localFilters.page = 1;
+  localFilters.rating = null;
+  await loadComments();
 });
 
-watch(() => props.productId, () => {
-  filters.page = 1;
-  loadComments();
+watch(() => props.productId, async (newId) => {
+  commentsStore.setProduct(newId);
+  localFilters.page = 1;
+  await loadComments();
 });
 
-onMounted(() => {
+onMounted(async () => {
+  commentsStore.setProduct(props.productId);
   buildSortOptions();
-  loadComments();
+  await loadComments();
 });
 </script>
 
 <style scoped>
 .comments-wrap {
   width: 100%;
+}
+.body {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

@@ -199,6 +199,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/admin/comment-reports/{report}/resolve', [AdminProductCommentReportController::class, 'resolve'])
         ->middleware('can:resolve,report');
 
+    Route::get('/admin/comments/moderation', [AdminProductCommentController::class, 'moderationList'])
+        ->middleware('can:viewAny,App\Models\ProductComment');
+
 });
 
 //==========================================================================
