@@ -46,6 +46,14 @@ export const navItems = [
     requiredRoles: [], 
   },
   {
+    title: 'Коментарі',
+    icon: 'mdi-comment-text-multiple-outline',
+    to: { name: 'my-comments' },
+    // видят все, кроме admin/manager — фильтруется в UI через authStore
+    requiredRoles: [],
+    hideForRoles: ['admin', 'manager'],
+  },
+  {
   title: 'Модерація коментарів',
     icon: 'mdi-comment-alert-outline',
     to: { name: 'comment-moderation' },

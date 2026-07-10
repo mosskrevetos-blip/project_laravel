@@ -16,14 +16,14 @@ class ProductComment extends Model
         'author_id',
         'parent_id',
         'root_id',
-        'type',
+        'type', // review|question|answer
         'rating',
         'body',
         'pros',
         'cons',
         'is_verified_purchase',
-        'answer_origin',
-        'moderation_status',
+        'answer_origin', // administration|seller|null
+        'moderation_status', // pending|approved|rejected
         'moderation_reject_reason',
         'moderated_by',
         'moderated_at',
@@ -243,7 +243,7 @@ class ProductComment extends Model
             },
             'children as answers_count' => function ($q) {
                 $q->where('type', 'answer')
-                  ->where('moderation_status', 'approved');
+                    ->where('moderation_status', 'approved');
             },
         ]);
     }
@@ -269,7 +269,7 @@ class ProductComment extends Model
             if ($userId) {
                 $q->orWhere(function (Builder $my) use ($userId) {
                     $my->where('author_id', $userId)
-                       ->whereIn('moderation_status', ['pending', 'rejected']);
+                        ->whereIn('moderation_status', ['pending', 'rejected']);
                 });
             }
         });
@@ -285,13 +285,13 @@ class ProductComment extends Model
                                      ->orderByDesc('created_at'),
             'helpful_asc'   => $query->orderByRaw('(COALESCE(likes_count,0) - COALESCE(dislikes_count,0)) ASC')
                                      ->orderByDesc('created_at'),
-            default         => $query->orderByDesc('created_at'), // date_desc
+            default         => $query->orderByDesc('created_at'),
         };
     }
 
     public function scopeSortQuestions(Builder $query, ?string $sort): Builder
     {
-        // По ТЗ: сначала с ответом, внутри группы — по дате или полезности
+        // сначала с ответами, потом сорт внутри
         $query->orderByDesc('answers_count');
 
         return match ($sort) {
@@ -300,7 +300,7 @@ class ProductComment extends Model
                                      ->orderByDesc('created_at'),
             'helpful_asc'   => $query->orderByRaw('(COALESCE(likes_count,0) - COALESCE(dislikes_count,0)) ASC')
                                      ->orderByDesc('created_at'),
-            default         => $query->orderByDesc('created_at'), // date_desc
+            default         => $query->orderByDesc('created_at'),
         };
     }
 }

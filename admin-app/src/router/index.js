@@ -8,6 +8,7 @@ import UsersView from '../views/UsersView.vue';
 import OrdersView from '../views/OrdersView.vue';
 import FavoritesView from '../views/FavoritesView.vue';
 import MessagesView from '../views/MessagesView.vue';
+import MyCommentsView from '../views/MyCommentsView.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -58,6 +59,12 @@ const router = createRouter({
       name: 'messages',
       component: MessagesView,
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/my-comments',
+      name: 'my-comments',
+      component: MyCommentsView,
+      meta: { requiresAuth: true, excludeRoles: ['admin', 'manager'] },
     },
     // Редирект с главной страницы на страницу товаров
     {

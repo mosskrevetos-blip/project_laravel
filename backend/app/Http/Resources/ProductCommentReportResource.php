@@ -28,6 +28,14 @@ class ProductCommentReportResource extends JsonResource
                     'product_id' => (int)$this->comment->product_id,
                     'moderation_status' => $this->comment->moderation_status,
                     'created_at' => optional($this->comment->created_at)->toISOString(),
+
+                    'product' => $this->comment->relationLoaded('product') && $this->comment->product
+                        ? [
+                            'id' => (int)$this->comment->product->id,
+                            'title' => $this->comment->product->title,
+                            'slug' => $this->comment->product->slug,
+                        ]
+                        : null,
                 ];
             }),
 

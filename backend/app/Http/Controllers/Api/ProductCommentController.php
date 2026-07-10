@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\ProductComment;
 use App\Services\ProductCommentService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ProductCommentController extends Controller
 {
@@ -61,7 +62,29 @@ class ProductCommentController extends Controller
 
         return response()->json([
             'message' => 'Відповідь успішно опубліковано.',
-            'data' => (new ProductCommentResource($answer))->resolve(),
+            'data' => (new ProductCommentResource(
+                $answer->load([
+                    'product:id,title,slug,user_id',
+                    'author:id,name',
+                    'media:id,comment_id,type,path,external_url,sort_order',
+                ])
+            ))->resolve(),
         ], 201);
+    }
+
+    public function myComments(Request $request): JsonResponse
+    {
+        $result = $this->service->listForAuthor(
+            authorId: (int)$request->user()->id,
+            filters: $request->only(['type', 'status', 'page', 'per_page'])
+        );
+
+        return response()->json([
+            'data' => ProductCommentResource::collection(collect($result['data']))->resolve(),
+            'current_page' => $result['current_page'],
+            'last_page' => $result['last_page'],
+            'per_page' => $result['per_page'],
+            'total' => $result['total'],
+        ]);
     }
 }

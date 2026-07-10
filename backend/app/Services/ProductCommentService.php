@@ -11,12 +11,18 @@ use App\Models\ProductCommentReport;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class ProductCommentService
 {
+    public function __construct(
+        private readonly ImageService $imageService,
+        private readonly FileService $fileService
+    ) {}
+
     /**
      * Публічний/авторський список коментарів по товару.
      */
@@ -33,9 +39,24 @@ class ProductCommentService
             ->type($type)
             ->visibleForUser($viewerId)
             ->withEngagementStats()
-            ->withPublicRelations();
+            ->with([
+                'product:id,title,slug',
+                'author:id,name',
+                'media:id,comment_id,type,path,external_url,sort_order',
+                'media.comment:id,product_id',
+                'answers.author:id,name',
+                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media.comment:id,product_id',
+            ]);
 
-        // Фільтри
+        if ($viewerId) {
+            $query->withExists([
+                'reports as my_pending_report_exists' => function ($q) use ($viewerId) {
+                    $q->where('reporter_id', $viewerId)->where('status', 'pending');
+                }
+            ]);
+        }
+
         if ($type === 'review' && !empty($filters['rating'])) {
             $query->where('rating', (int)$filters['rating']);
         }
@@ -48,7 +69,6 @@ class ProductCommentService
             $query->whereHas('media', fn ($q) => $q->where('type', 'image'));
         }
 
-        // Сортування
         if ($type === 'review') {
             $query->sortReviews($sort);
         } else {
@@ -68,8 +88,50 @@ class ProductCommentService
     }
 
     /**
-     * Створити root review/question (з премодерацією).
+     * Список root-коментарів поточного автора.
      */
+    public function listForAuthor(int $authorId, array $filters = []): array
+    {
+        $type = $filters['type'] ?? null;
+        $status = $filters['status'] ?? null;
+        $perPage = (int)($filters['per_page'] ?? 20);
+        $perPage = max(1, min($perPage, 100));
+
+        $query = ProductComment::query()
+            ->where('author_id', $authorId)
+            ->whereNull('parent_id')
+            ->withEngagementStats()
+            ->with([
+                'product:id,title,slug',
+                'author:id,name',
+                'media:id,comment_id,type,path,external_url,sort_order',
+                'media.comment:id,product_id',
+                'answers.author:id,name',
+                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media.comment:id,product_id',
+            ])
+            ->orderByDesc('created_at');
+
+        if ($type && in_array($type, ['review', 'question'], true)) {
+            $query->where('type', $type);
+        }
+
+        if ($status && in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            $query->where('moderation_status', $status);
+        }
+
+        /** @var LengthAwarePaginator $paginator */
+        $paginator = $query->paginate($perPage);
+
+        return [
+            'data' => $paginator->items(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ];
+    }
+
     public function createRootComment(Product $product, User $author, array $payload, array $images = []): ProductComment
     {
         return DB::transaction(function () use ($product, $author, $payload, $images) {
@@ -90,35 +152,28 @@ class ProductCommentService
             $comment->moderation_status = 'pending';
             $comment->save();
 
-            // root_id = self id
             $comment->root_id = $comment->id;
             $comment->save();
 
             $this->syncMedia($comment, $images, $payload['youtube_url'] ?? null);
 
             return $comment->fresh([
+                'product:id,title,slug',
                 'author:id,name',
                 'media:id,comment_id,type,path,external_url,sort_order',
+                'media.comment:id,product_id',
             ]);
         });
     }
 
-    /**
-     * Відповідь продавця/адміністрації на root comment.
-     * Відповідь публікується одразу (approved).
-     */
     public function createAnswer(ProductComment $rootComment, User $actor, array $payload, array $images = []): ProductComment
     {
         if ($rootComment->parent_id !== null) {
-            throw ValidationException::withMessages([
-                'comment' => 'Відповідати можна тільки на кореневий коментар.',
-            ]);
+            throw ValidationException::withMessages(['comment' => 'Відповідати можна тільки на кореневий коментар.']);
         }
 
         if (!in_array($rootComment->type, ['review', 'question'], true)) {
-            throw ValidationException::withMessages([
-                'comment' => 'Відповідь можлива тільки для відгуку або питання.',
-            ]);
+            throw ValidationException::withMessages(['comment' => 'Відповідь можлива тільки для відгуку або питання.']);
         }
 
         return DB::transaction(function () use ($rootComment, $actor, $payload, $images) {
@@ -130,9 +185,7 @@ class ProductCommentService
             $isSellerOwner = ((int)($product->user_id ?? 0) === (int)$actor->id);
 
             if (!$isAdminOrManager && !$isSellerOwner) {
-                throw ValidationException::withMessages([
-                    'comment' => 'Недостатньо прав для відповіді.',
-                ]);
+                throw ValidationException::withMessages(['comment' => 'Недостатньо прав для відповіді.']);
             }
 
             $answer = new ProductComment();
@@ -141,11 +194,7 @@ class ProductCommentService
             $answer->parent_id = $rootComment->id;
             $answer->root_id = $rootComment->id;
             $answer->type = 'answer';
-            $answer->rating = null;
             $answer->body = $payload['body'] ?? null;
-            $answer->pros = null;
-            $answer->cons = null;
-            $answer->is_verified_purchase = false;
             $answer->answer_origin = $isAdminOrManager ? 'administration' : 'seller';
             $answer->moderation_status = 'approved';
             $answer->save();
@@ -155,19 +204,15 @@ class ProductCommentService
             return $answer->fresh([
                 'author:id,name',
                 'media:id,comment_id,type,path,external_url,sort_order',
+                'media.comment:id,product_id',
             ]);
         });
     }
 
-    /**
-     * 1 реакція на користувача/коментар, з перемиканням like/dislike.
-     */
     public function upsertReaction(ProductComment $comment, User $user, string $reaction): array
     {
         if (!in_array($reaction, ['like', 'dislike'], true)) {
-            throw ValidationException::withMessages([
-                'reaction' => 'Дозволені значення: like або dislike.',
-            ]);
+            throw ValidationException::withMessages(['reaction' => 'Дозволені значення: like або dislike.']);
         }
 
         DB::transaction(function () use ($comment, $user, $reaction) {
@@ -186,22 +231,14 @@ class ProductCommentService
                 return;
             }
 
-            // Переключення
             if ($row->reaction !== $reaction) {
                 $row->reaction = $reaction;
                 $row->save();
             }
         });
 
-        $likes = ProductCommentReaction::query()
-            ->where('comment_id', $comment->id)
-            ->where('reaction', 'like')
-            ->count();
-
-        $dislikes = ProductCommentReaction::query()
-            ->where('comment_id', $comment->id)
-            ->where('reaction', 'dislike')
-            ->count();
+        $likes = ProductCommentReaction::where('comment_id', $comment->id)->where('reaction', 'like')->count();
+        $dislikes = ProductCommentReaction::where('comment_id', $comment->id)->where('reaction', 'dislike')->count();
 
         return [
             'comment_id' => $comment->id,
@@ -212,16 +249,11 @@ class ProductCommentService
         ];
     }
 
-    /**
-     * Створити тікет скарги (1 активна pending на comment/user).
-     */
     public function createReport(ProductComment $comment, User $reporter, string $reason): ProductCommentReport
     {
         $reason = trim($reason);
         if ($reason === '') {
-            throw ValidationException::withMessages([
-                'reason' => 'Причина скарги обов’язкова.',
-            ]);
+            throw ValidationException::withMessages(['reason' => 'Причина скарги обов’язкова.']);
         }
 
         return DB::transaction(function () use ($comment, $reporter, $reason) {
@@ -233,9 +265,7 @@ class ProductCommentService
                 ->exists();
 
             if ($existsPending) {
-                throw ValidationException::withMessages([
-                    'reason' => 'У вас вже є активна скарга на цей коментар.',
-                ]);
+                throw ValidationException::withMessages(['reason' => 'У вас вже є активна скарга на цей коментар.']);
             }
 
             return ProductCommentReport::create([
@@ -247,37 +277,22 @@ class ProductCommentService
         });
     }
 
-    /**
-     * Модерація root comment: approved/rejected.
-     */
-    public function moderateComment(
-        ProductComment $comment,
-        User $moderator,
-        string $status,
-        ?string $rejectReason = null
-    ): ProductComment {
+    public function moderateComment(ProductComment $comment, User $moderator, string $status, ?string $rejectReason = null): ProductComment
+    {
         if (!in_array($status, ['approved', 'rejected'], true)) {
-            throw ValidationException::withMessages([
-                'moderation_status' => 'Дозволені статуси: approved або rejected.',
-            ]);
+            throw ValidationException::withMessages(['moderation_status' => 'Дозволені статуси: approved або rejected.']);
         }
 
         if ($comment->parent_id !== null) {
-            throw ValidationException::withMessages([
-                'comment' => 'Модерація застосовується тільки до кореневих коментарів.',
-            ]);
+            throw ValidationException::withMessages(['comment' => 'Модерація застосовується тільки до кореневих коментарів.']);
         }
 
         if (!in_array($comment->type, ['review', 'question'], true)) {
-            throw ValidationException::withMessages([
-                'comment' => 'Модерація доступна тільки для review/question.',
-            ]);
+            throw ValidationException::withMessages(['comment' => 'Модерація доступна тільки для review/question.']);
         }
 
         if ($status === 'rejected' && trim((string)$rejectReason) === '') {
-            throw ValidationException::withMessages([
-                'moderation_reject_reason' => 'Для відхилення потрібно вказати причину.',
-            ]);
+            throw ValidationException::withMessages(['moderation_reject_reason' => 'Для відхилення потрібно вказати причину.']);
         }
 
         $comment->moderation_status = $status;
@@ -290,36 +305,36 @@ class ProductCommentService
     }
 
     /**
-     * Редагування коментаря адміністрацією.
+     * ADMIN UPDATE:
+     * - text fields
+     * - remove_media_ids[] (legacy)
+     * - media_sync[] (full sync)
+     * - append images[]
+     * - append youtube_url
      */
-    public function adminUpdateComment(
-        ProductComment $comment,
-        User $admin,
-        array $payload,
-        array $images = []
-    ): ProductComment {
+    public function adminUpdateComment(ProductComment $comment, User $admin, array $payload, array $images = []): ProductComment
+    {
         return DB::transaction(function () use ($comment, $admin, $payload, $images) {
+            // --- text fields ---
             if (array_key_exists('body', $payload)) {
                 $comment->body = $payload['body'];
             }
 
             if ($comment->type === 'review') {
-                if (array_key_exists('pros', $payload)) {
-                    $comment->pros = $payload['pros'];
-                }
-                if (array_key_exists('cons', $payload)) {
-                    $comment->cons = $payload['cons'];
-                }
-                if (array_key_exists('rating', $payload)) {
-                    $comment->rating = $payload['rating'];
-                }
+                if (array_key_exists('pros', $payload)) $comment->pros = $payload['pros'];
+                if (array_key_exists('cons', $payload)) $comment->cons = $payload['cons'];
+                if (array_key_exists('rating', $payload)) $comment->rating = $payload['rating'];
             }
 
             $comment->edited_by_admin_id = $admin->id;
             $comment->save();
 
-            // Удаление выбранных медиа
-            $removeIds = collect($payload['remove_media_ids'] ?? [])->map(fn ($id) => (int)$id)->unique()->values();
+            // --- remove_media_ids (legacy) ---
+            $removeIds = collect($payload['remove_media_ids'] ?? [])
+                ->map(fn ($id) => (int)$id)
+                ->unique()
+                ->values();
+
             if ($removeIds->isNotEmpty()) {
                 $toDelete = ProductCommentMedia::query()
                     ->where('comment_id', $comment->id)
@@ -328,67 +343,56 @@ class ProductCommentService
 
                 foreach ($toDelete as $media) {
                     if ($media->type === 'image' && $media->path) {
-                        Storage::disk('public')->delete($media->path);
+                        $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$media->path);
                     }
                     $media->delete();
                 }
             }
 
-            // Якщо прийшли нові медіа — додаємо (не зносимо існуючі)
+            // --- media_sync (full sync) ---
+            if (!empty($payload['media_sync']) && is_array($payload['media_sync'])) {
+                $this->applyMediaSync($comment, collect($payload['media_sync']));
+            }
+
+            // --- append newly uploaded images / youtube ---
             if (!empty($images) || !empty($payload['youtube_url'])) {
                 $this->appendMedia($comment, $images, $payload['youtube_url'] ?? null);
             }
 
             return $comment->fresh([
+                'product:id,title,slug',
                 'author:id,name',
                 'media:id,comment_id,type,path,external_url,sort_order',
+                'media.comment:id,product_id',
+                'answers.author:id,name',
+                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media.comment:id,product_id',
             ]);
         });
     }
 
-    /**
-     * Видалення коментаря адміністрацією (soft delete).
-     * Додатково видаляємо файли image з диска.
-     */
     public function adminDeleteComment(ProductComment $comment, User $admin): void
     {
         DB::transaction(function () use ($comment, $admin) {
-            // Помечаем, кто удалил
             $comment->deleted_by_admin_id = $admin->id;
             $comment->save();
 
-            // Удаляем файлы текущего comment
-            $media = ProductCommentMedia::query()
-                ->where('comment_id', $comment->id)
-                ->get();
-
+            $media = ProductCommentMedia::query()->where('comment_id', $comment->id)->get();
             foreach ($media as $m) {
                 if ($m->type === 'image' && $m->path) {
-                    Storage::disk('public')->delete($m->path);
+                    $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$m->path);
                 }
             }
 
-            // Можно оставить media записи, но обычно мягко чистят при soft delete коммента.
-            // Если хотите сохранить аудит — закомментируйте:
             ProductCommentMedia::query()->where('comment_id', $comment->id)->delete();
-
             $comment->delete();
         });
     }
 
-    /**
-     * Обробка тікета скарги.
-     */
-    public function resolveReport(
-        ProductCommentReport $report,
-        User $resolver,
-        string $status,
-        ?string $resolutionNote = null
-    ): ProductCommentReport {
+    public function resolveReport(ProductCommentReport $report, User $resolver, string $status, ?string $resolutionNote = null): ProductCommentReport
+    {
         if (!in_array($status, ['resolved', 'rejected'], true)) {
-            throw ValidationException::withMessages([
-                'status' => 'Дозволені статуси: resolved або rejected.',
-            ]);
+            throw ValidationException::withMessages(['status' => 'Дозволені статуси: resolved або rejected.']);
         }
 
         $report->status = $status;
@@ -400,39 +404,29 @@ class ProductCommentService
         return $report->fresh(['reporter:id,name', 'resolver:id,name']);
     }
 
-    /**
-     * Визначення підтвердженої покупки.
-     * Підлаштуйте статуси під вашу систему Order.
-     */
     private function resolveVerifiedPurchase(int $userId, int $productId, ?int $sellerId = null): bool
     {
         $query = Order::query()
             ->where('user_id', $userId)
             ->whereIn('status', ['paid', 'completed', 'delivered'])
-            ->whereHas('items', function (Builder $q) use ($productId, $sellerId) {
-                $q->where('product_id', $productId);
-
-                if ($sellerId) {
-                    $q->where('seller_id', $sellerId);
-                }
+            ->whereHas('products', function (Builder $q) use ($productId) {
+                $q->where('products.id', $productId);
             });
+
+        if ($sellerId) $query->where('seller_id', $sellerId);
 
         return $query->exists();
     }
 
-    /**
-     * Полная синхронизация media (для create).
-     */
     private function syncMedia(ProductComment $comment, array $images, ?string $youtubeUrl): void
     {
-        // create-поток: просто добавляем media
         $this->appendMedia($comment, $images, $youtubeUrl);
     }
 
     /**
-     * Добавление media с ограничениями:
-     * - максимум 5 изображений
-     * - максимум 1 youtube
+     * Append mode:
+     * - add images up to limit 5
+     * - add only one youtube per comment
      */
     private function appendMedia(ProductComment $comment, array $images, ?string $youtubeUrl): void
     {
@@ -444,9 +438,7 @@ class ProductCommentService
         $incomingImagesCount = count($images);
 
         if (($currentImagesCount + $incomingImagesCount) > 5) {
-            throw ValidationException::withMessages([
-                'images' => 'Максимум 5 фото на один коментар.',
-            ]);
+            throw ValidationException::withMessages(['images' => 'Максимум 5 фото на один коментар.']);
         }
 
         $hasYoutube = ProductCommentMedia::query()
@@ -455,30 +447,21 @@ class ProductCommentService
             ->exists();
 
         if ($youtubeUrl && $hasYoutube) {
-            throw ValidationException::withMessages([
-                'youtube_url' => 'Дозволено лише 1 YouTube-посилання на коментар.',
-            ]);
+            throw ValidationException::withMessages(['youtube_url' => 'Дозволено лише 1 YouTube-посилання на коментар.']);
         }
 
         $maxSort = (int) ProductCommentMedia::query()
             ->where('comment_id', $comment->id)
             ->max('sort_order');
 
-        // Images -> existing webp processor hook
         foreach ($images as $image) {
             $maxSort++;
-
-            // IMPORTANT:
-            // Підключіть вашу існуючу функцію конвертації в webp тут.
-            // Наприклад:
-            // $path = app(\App\Services\ImageService::class)->storeAsWebp($image, 'comment-media');
-            // Ниже fallback без конвертации (замените на ваш метод):
-            $path = $this->storeImageAsWebpViaExistingPipeline($image);
+            $basename = $this->storeImageAsWebpViaExistingPipeline($image, (int)$comment->product_id);
 
             ProductCommentMedia::create([
                 'comment_id' => $comment->id,
                 'type' => 'image',
-                'path' => $path,
+                'path' => $basename,
                 'external_url' => null,
                 'sort_order' => $maxSort,
             ]);
@@ -499,13 +482,138 @@ class ProductCommentService
     }
 
     /**
-     * TODO: замініть на вашу реальну існуючу функцію конвертації в webp.
+     * Full sync mode:
+     * - remove media that are not in sync list (for existing IDs)
+     * - keep/reorder existing
+     * - allow creating one new youtube from sync item with id=null
      */
-    private function storeImageAsWebpViaExistingPipeline($uploadedFile): string
+    private function applyMediaSync(ProductComment $comment, Collection $sync): void
     {
-        // ВАЖНО: здесь нужно подключить уже существующую функцию в вашем проекте.
-        // Временный fallback:
-        return $uploadedFile->store('product-comments', 'public');
+        $normalized = $sync
+            ->map(function ($item, $idx) {
+                return [
+                    'id' => isset($item['id']) && $item['id'] !== null ? (int)$item['id'] : null,
+                    'type' => $item['type'] ?? null,
+                    'url' => $item['url'] ?? null,
+                    'external_url' => $item['external_url'] ?? null,
+                    'sort_order' => isset($item['sort_order']) ? (int)$item['sort_order'] : (int)$idx,
+                ];
+            })
+            ->values();
+
+        $existing = ProductCommentMedia::query()
+            ->where('comment_id', $comment->id)
+            ->get()
+            ->keyBy('id');
+
+        $keepIds = $normalized
+            ->pluck('id')
+            ->filter()
+            ->map(fn ($id) => (int)$id)
+            ->unique()
+            ->values();
+
+        // delete omitted existing media
+        $toDelete = ProductCommentMedia::query()
+            ->where('comment_id', $comment->id)
+            ->when(
+                $keepIds->isNotEmpty(),
+                fn ($q) => $q->whereNotIn('id', $keepIds->all()),
+                fn ($q) => $q
+            )
+            ->get();
+
+        foreach ($toDelete as $media) {
+            if ($media->type === 'image' && $media->path) {
+                $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$media->path);
+            }
+            $media->delete();
+        }
+
+        // existing youtube count after deletion
+        $youtubeCount = ProductCommentMedia::query()
+            ->where('comment_id', $comment->id)
+            ->where('type', 'youtube')
+            ->count();
+
+        foreach ($normalized as $row) {
+            $id = $row['id'];
+            $type = $row['type'];
+            $sort = $row['sort_order'];
+
+            // reorder/update existing
+            if ($id && $existing->has($id)) {
+                /** @var ProductCommentMedia $m */
+                $m = $existing->get($id);
+                $m->sort_order = $sort;
+
+                if ($m->type === 'youtube') {
+                    // allow youtube url update
+                    $newUrl = $row['external_url'] ?: $row['url'];
+                    if ($newUrl) {
+                        $m->external_url = $this->normalizeYoutubeUrl($newUrl);
+                    }
+                }
+
+                $m->save();
+                continue;
+            }
+
+            // create new youtube from sync row if id=null
+            if (!$id && $type === 'youtube') {
+                if ($youtubeCount >= 1) {
+                    throw ValidationException::withMessages([
+                        'media_sync' => 'Дозволено лише 1 YouTube-посилання на коментар.',
+                    ]);
+                }
+
+                $newUrl = $row['external_url'] ?: $row['url'];
+                if (!$newUrl) {
+                    throw ValidationException::withMessages([
+                        'media_sync' => 'Для нового YouTube потрібно передати url/external_url.',
+                    ]);
+                }
+
+                ProductCommentMedia::create([
+                    'comment_id' => $comment->id,
+                    'type' => 'youtube',
+                    'path' => null,
+                    'external_url' => $this->normalizeYoutubeUrl($newUrl),
+                    'sort_order' => $sort,
+                ]);
+
+                $youtubeCount++;
+            }
+        }
+    }
+
+    private function storeImageAsWebpViaExistingPipeline($uploadedFile, int $productId): string
+    {
+        $basename = $this->fileService->generateUniqueFilename($uploadedFile);
+
+        $this->imageService->generateVariantsAndManifest(
+            uploadedFile: $uploadedFile,
+            productId: $productId,
+            basename: $basename
+        );
+
+        return $basename;
+    }
+
+    private function deleteCommentImageVariantsByBasename(int $productId, string $basename): void
+    {
+        $disk = Storage::disk('public');
+        $dir = "products/{$productId}";
+
+        $nameWithoutExt = pathinfo($basename, PATHINFO_FILENAME);
+        $ext = pathinfo($basename, PATHINFO_EXTENSION) ?: 'webp';
+
+        foreach ([150, 400, 800, 1200, 2000] as $size) {
+            $disk->delete("{$dir}/{$nameWithoutExt}_{$size}.webp");
+            $disk->delete("{$dir}/{$nameWithoutExt}_{$size}.{$ext}");
+        }
+
+        $disk->delete("{$dir}/{$basename}");
     }
 
     private function normalizeYoutubeUrl(string $url): string

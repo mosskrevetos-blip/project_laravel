@@ -28,6 +28,7 @@ export const useProductCommentsStore = defineStore('productComments', {
     createLoading: false,
     actionLoading: false,
     reportLoading: false,
+    answerLoading: false,
   }),
 
   actions: {
@@ -39,7 +40,6 @@ export const useProductCommentsStore = defineStore('productComments', {
       this.filters.type = type;
       this.filters.page = 1;
 
-      // для питання не применяем rating
       if (type === 'question') {
         this.filters.rating = null;
         if (this.filters.sort === 'rating_desc' || this.filters.sort === 'rating_asc') {
@@ -100,7 +100,6 @@ export const useProductCommentsStore = defineStore('productComments', {
     },
 
     async createComment(formPayload) {
-      // formPayload: { type, rating, body, pros, cons, images, youtube_url }
       if (!this.filters.product_id) return;
 
       this.createLoading = true;
@@ -124,7 +123,9 @@ export const useProductCommentsStore = defineStore('productComments', {
         if (formPayload.youtube_url) fd.append('youtube_url', formPayload.youtube_url);
 
         (formPayload.images || []).slice(0, 5).forEach((file) => {
-          fd.append('images[]', file);
+          if (file instanceof File) {
+            fd.append('images[]', file);
+          }
         });
 
         await apiClient.post(`/products/${this.filters.product_id}/comments`, fd, {
@@ -141,6 +142,39 @@ export const useProductCommentsStore = defineStore('productComments', {
       }
     },
 
+    // ✅ НОВОЕ: отправка ответа продавца/админа
+    async createAnswer(commentId, payload = {}) {
+      this.answerLoading = true;
+      this.error = null;
+
+      try {
+        await apiClient.getCsrfCookie();
+
+        const fd = new FormData();
+
+        if (payload.body) fd.append('body', payload.body);
+        if (payload.youtube_url) fd.append('youtube_url', payload.youtube_url);
+
+        (payload.images || []).slice(0, 5).forEach((file) => {
+          if (file instanceof File) {
+            fd.append('images[]', file);
+          }
+        });
+
+        const response = await apiClient.post(`/comments/${commentId}/answers`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        return response.data?.data ?? null;
+      } catch (err) {
+        this.error = err?.response?.data?.message || 'Не вдалося надіслати відповідь';
+        console.error(err);
+        throw err;
+      } finally {
+        this.answerLoading = false;
+      }
+    },
+
     async react(commentId, reaction) {
       this.actionLoading = true;
       this.error = null;
@@ -151,6 +185,7 @@ export const useProductCommentsStore = defineStore('productComments', {
         const response = await apiClient.post(`/comments/${commentId}/reaction`, { reaction });
         const dto = response.data?.data;
 
+        // root comment
         const i = this.items.findIndex((x) => x.id === commentId);
         if (i !== -1 && dto) {
           this.items[i] = {
@@ -159,6 +194,28 @@ export const useProductCommentsStore = defineStore('productComments', {
             dislikes_count: dto.dislikes_count,
             helpfulness_score: dto.helpfulness_score,
           };
+          return dto;
+        }
+
+        // answer
+        for (let rootIdx = 0; rootIdx < this.items.length; rootIdx += 1) {
+          const root = this.items[rootIdx];
+          const answers = Array.isArray(root.answers) ? root.answers : [];
+          const ansIdx = answers.findIndex((a) => a.id === commentId);
+          if (ansIdx !== -1 && dto) {
+            const nextAnswers = [...answers];
+            nextAnswers[ansIdx] = {
+              ...nextAnswers[ansIdx],
+              likes_count: dto.likes_count,
+              dislikes_count: dto.dislikes_count,
+              helpfulness_score: dto.helpfulness_score,
+            };
+            this.items[rootIdx] = {
+              ...root,
+              answers: nextAnswers,
+            };
+            return dto;
+          }
         }
 
         return dto;

@@ -1,6 +1,29 @@
 import { defineStore } from 'pinia';
 import apiClient from '@/api';
 
+function hasBinaryImages(arr) {
+  return Array.isArray(arr) && arr.some((f) => f instanceof File);
+}
+
+function normalizeErrorMessage(err, fallback) {
+  const data = err?.response?.data;
+  if (!data) return fallback;
+
+  if (typeof data?.message === 'string' && data.message.trim()) {
+    return data.message;
+  }
+
+  // Laravel validation errors
+  if (data?.errors && typeof data.errors === 'object') {
+    const firstKey = Object.keys(data.errors)[0];
+    if (firstKey && Array.isArray(data.errors[firstKey]) && data.errors[firstKey][0]) {
+      return data.errors[firstKey][0];
+    }
+  }
+
+  return fallback;
+}
+
 export const useProductCommentModerationStore = defineStore('productCommentModeration', {
   state: () => ({
     // comments moderation
@@ -63,13 +86,12 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           total: response.data?.total ?? 0,
         };
 
-        // синхронизируем фильтры
         this.commentsFilters = {
           ...this.commentsFilters,
           ...params,
         };
       } catch (err) {
-        this.commentsError = 'Помилка при завантаженні коментарів на модерацію';
+        this.commentsError = normalizeErrorMessage(err, 'Помилка при завантаженні коментарів на модерацію');
         console.error(err);
         throw err;
       } finally {
@@ -87,8 +109,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           moderation_status: 'approved',
         });
 
-        // оптимистично обновим локально
-        const idx = this.comments.findIndex(c => c.id === commentId);
+        const idx = this.comments.findIndex((c) => c.id === commentId);
         if (idx !== -1) {
           this.comments[idx] = {
             ...this.comments[idx],
@@ -97,7 +118,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           };
         }
       } catch (err) {
-        this.actionError = 'Помилка при підтвердженні коментаря';
+        this.actionError = normalizeErrorMessage(err, 'Помилка при підтвердженні коментаря');
         console.error(err);
         throw err;
       } finally {
@@ -116,7 +137,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           moderation_reject_reason: reason ?? '',
         });
 
-        const idx = this.comments.findIndex(c => c.id === commentId);
+        const idx = this.comments.findIndex((c) => c.id === commentId);
         if (idx !== -1) {
           this.comments[idx] = {
             ...this.comments[idx],
@@ -125,7 +146,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           };
         }
       } catch (err) {
-        this.actionError = 'Помилка при відхиленні коментаря';
+        this.actionError = normalizeErrorMessage(err, 'Помилка при відхиленні коментаря');
         console.error(err);
         throw err;
       } finally {
@@ -140,10 +161,145 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
       try {
         await apiClient.getCsrfCookie();
         await apiClient.delete(`/admin/comments/${commentId}`);
-        this.comments = this.comments.filter(c => c.id !== commentId);
+
+        // remove root comment if it's root
+        this.comments = this.comments.filter((c) => c.id !== commentId);
+
+        // remove answer from nested answers
+        this.comments = this.comments.map((c) => ({
+          ...c,
+          answers: Array.isArray(c.answers)
+            ? c.answers.filter((a) => a.id !== commentId)
+            : c.answers,
+        }));
       } catch (err) {
-        this.actionError = 'Помилка при видаленні коментаря';
+        this.actionError = normalizeErrorMessage(err, 'Помилка при видаленні коментаря');
         console.error(err);
+        throw err;
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    /**
+     * payload:
+     * {
+     *   body?: string|null,
+     *   pros?: string|null,
+     *   cons?: string|null,
+     *   rating?: number|null,
+     *   youtube_url?: string|null,
+     *   media_sync?: Array<{id|null,type,url|null,external_url|null,sort_order:number}>,
+     *   remove_media_ids?: number[],
+     *   new_images?: File[]
+     * }
+     */
+    async updateComment(commentId, payload = {}) {
+      this.actionLoading = true;
+      this.actionError = null;
+
+      try {
+        await apiClient.getCsrfCookie();
+
+        const hasFiles = hasBinaryImages(payload.new_images);
+        const hasMediaSync = Array.isArray(payload.media_sync);
+        const hasRemoveIds = Array.isArray(payload.remove_media_ids) && payload.remove_media_ids.length > 0;
+        const hasYoutube = Object.prototype.hasOwnProperty.call(payload, 'youtube_url');
+
+        let response;
+
+        // If changing media / uploading files -> multipart (POST + _method=PUT)
+        if (hasFiles || hasMediaSync || hasRemoveIds || hasYoutube) {
+          const form = new FormData();
+
+          if (Object.prototype.hasOwnProperty.call(payload, 'body')) {
+            form.append('body', payload.body ?? '');
+          }
+          if (Object.prototype.hasOwnProperty.call(payload, 'pros')) {
+            form.append('pros', payload.pros ?? '');
+          }
+          if (Object.prototype.hasOwnProperty.call(payload, 'cons')) {
+            form.append('cons', payload.cons ?? '');
+          }
+          if (Object.prototype.hasOwnProperty.call(payload, 'rating')) {
+            form.append('rating', payload.rating == null ? '' : String(payload.rating));
+          }
+
+          // optional youtube URL
+          if (hasYoutube) {
+            form.append('youtube_url', payload.youtube_url ?? '');
+          }
+
+          // new images
+          if (Array.isArray(payload.new_images)) {
+            payload.new_images.forEach((file) => {
+              if (file instanceof File) form.append('images[]', file);
+            });
+          }
+
+          // remove specific media ids (legacy path)
+          if (hasRemoveIds) {
+            form.append('remove_media_ids', JSON.stringify(payload.remove_media_ids));
+          }
+
+          // full media sync (keep/reorder/create youtube entries)
+          // IMPORTANT: backend request now decodes JSON string in prepareForValidation()
+          if (hasMediaSync) {
+            form.append('media_sync', JSON.stringify(payload.media_sync));
+          }
+
+          // Laravel method spoofing for multipart update
+          form.append('_method', 'PUT');
+
+          response = await apiClient.post(`/admin/comments/${commentId}`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } else {
+          // text-only update
+          const body = {
+            body: payload.body ?? null,
+            pros: payload.pros ?? null,
+            cons: payload.cons ?? null,
+            rating: typeof payload.rating === 'undefined' ? null : payload.rating,
+          };
+
+          response = await apiClient.put(`/admin/comments/${commentId}`, body);
+        }
+
+        const updated = response?.data?.data ?? null;
+
+        // 1) update root if needed
+        const rootIdx = this.comments.findIndex((c) => c.id === commentId);
+        if (rootIdx !== -1) {
+          this.comments[rootIdx] = {
+            ...this.comments[rootIdx],
+            ...(updated || payload),
+          };
+        }
+
+        // 2) update nested answer if needed
+        this.comments = this.comments.map((c) => {
+          if (!Array.isArray(c.answers)) return c;
+
+          const ansIdx = c.answers.findIndex((a) => a.id === commentId);
+          if (ansIdx === -1) return c;
+
+          const nextAnswers = [...c.answers];
+          nextAnswers[ansIdx] = {
+            ...nextAnswers[ansIdx],
+            ...(updated || payload),
+          };
+
+          return {
+            ...c,
+            answers: nextAnswers,
+          };
+        });
+
+        return updated;
+      } catch (err) {
+        this.actionError = normalizeErrorMessage(err, 'Помилка при редагуванні коментаря');
+        console.error(err?.response?.data || err);
         throw err;
       } finally {
         this.actionLoading = false;
@@ -177,7 +333,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           ...params,
         };
       } catch (err) {
-        this.reportsError = 'Помилка при завантаженні скарг';
+        this.reportsError = normalizeErrorMessage(err, 'Помилка при завантаженні скарг');
         console.error(err);
         throw err;
       } finally {
@@ -196,7 +352,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           resolution_note: resolutionNote,
         });
 
-        const idx = this.reports.findIndex(r => r.id === reportId);
+        const idx = this.reports.findIndex((r) => r.id === reportId);
         if (idx !== -1) {
           this.reports[idx] = {
             ...this.reports[idx],
@@ -205,7 +361,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
           };
         }
       } catch (err) {
-        this.actionError = 'Помилка при обробці скарги';
+        this.actionError = normalizeErrorMessage(err, 'Помилка при обробці скарги');
         console.error(err);
         throw err;
       } finally {

@@ -24,14 +24,13 @@ use App\Http\Controllers\Api\ProductCommentReportController;
 use App\Http\Controllers\Api\AdminProductCommentController;
 use App\Http\Controllers\Api\AdminProductCommentReportController;
 
-
 //==========================================================================
 // ПУБЛІЧНІ МАРШРУТИ (доступні всім)
 //==========================================================================
 
 Route::post('/orders/public', [OrderController::class, 'storePublic']);
 
-// CHANGED: expose delivery and payment methods for frontend
+// expose delivery and payment methods for frontend
 Route::get('/delivery-methods', [OrderController::class, 'deliveryMethods']);
 Route::get('/payment-methods', [OrderController::class, 'paymentMethods']);
 
@@ -46,7 +45,7 @@ Route::get('/products/{product}-{slug?}', [ProductController::class, 'show'])
 
 // Отримання атрибутів для конкретної категорії
 Route::get('/categories/{category}/attributes', [CategoryController::class, 'getAttributes']);
-Route::get('/categories/suggest', [CategoryController::class, 'suggest']); 
+Route::get('/categories/suggest', [CategoryController::class, 'suggest']);
 Route::get('/categories/{category}', [CategoryController::class, 'show'])->middleware('can:view,category');
 
 // --- Категорії ---
@@ -66,12 +65,12 @@ Route::get('/products/{product}/comments', [ProductCommentController::class, 'in
 //==========================================================================
 
 Route::middleware('auth:sanctum')->group(function () {
-    
+
     // --- Поточний користувач ---
     Route::get('/user', function (Request $request) {
         return $request->user()->load('roles');
     });
-    
+
     // --- Ролі ---
     Route::get('/roles', [RoleController::class, 'index']);
 
@@ -134,7 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // процес присутності користувача (для відображення онлайн-статусу)
     Route::post('/presence/ping', [PresenceController::class, 'ping']);
 
-    // Конверсції та повідомлення
+    // Конверсції
     Route::get('/conversations', [ConversationController::class, 'index']);
     Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
     Route::post('/conversations/with-seller/{seller}', [ConversationController::class, 'withSeller']);
@@ -147,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/conversations/{conversation}/report', [ConversationReportController::class, 'store']);
     Route::get('/conversations/{conversation}/reports', [ConversationReportController::class, 'index']);
     Route::post('/conversation-reports/{report}/resolve', [ConversationReportController::class, 'resolve']);
+
     // Повідомлення від адміністрації
     Route::post('/admin-messages', [AdminMessageController::class, 'store']);
     Route::get('/admin-messages/sent', [AdminMessageController::class, 'sent']);
@@ -162,7 +162,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/search/history/sync', [SearchController::class, 'syncHistory']);
     Route::delete('/search/history', [SearchController::class, 'clearHistory']);
     Route::delete('/search/history/{history}', [SearchController::class, 'destroyHistoryItem']);
-
 
     // ==========================================================================
     // Коментарі до товарів (review/question/answer/reaction/report)
@@ -183,10 +182,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // ==========================================================================
     // Адмін-модерація коментарів (admin/manager)
     // ==========================================================================
+
     Route::post('/admin/comments/{comment}/moderate', [AdminProductCommentController::class, 'moderate'])
         ->middleware('can:moderate,comment');
 
     Route::put('/admin/comments/{comment}', [AdminProductCommentController::class, 'update'])
+        ->middleware('can:updateByAdmin,comment');
+
+    // Для multipart/form-data с _method=PUT (удобно для медиа-редактирования)
+    Route::post('/admin/comments/{comment}', [AdminProductCommentController::class, 'update'])
         ->middleware('can:updateByAdmin,comment');
 
     Route::delete('/admin/comments/{comment}', [AdminProductCommentController::class, 'destroy'])
@@ -202,10 +206,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/comments/moderation', [AdminProductCommentController::class, 'moderationList'])
         ->middleware('can:viewAny,App\Models\ProductComment');
 
+    // Мої коментарі
+    Route::get('/me/comments', [ProductCommentController::class, 'myComments']);
 });
 
 //==========================================================================
 // МАРШРУТИ АУТЕНТИФІКАЦІЇ (login, register, logout...)
 //==========================================================================
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';

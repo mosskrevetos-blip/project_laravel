@@ -9,13 +9,9 @@ class ProductCommentResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $likes = isset($this->likes_count)
-            ? (int)$this->likes_count
-            : (int)($this->likes_count ?? 0);
-
-        $dislikes = isset($this->dislikes_count)
-            ? (int)$this->dislikes_count
-            : (int)($this->dislikes_count ?? 0);
+        $likes = (int)($this->likes_count ?? 0);
+        $dislikes = (int)($this->dislikes_count ?? 0);
+        $answersCount = isset($this->answers_count) ? (int)$this->answers_count : null;
 
         return [
             'id' => (int)$this->id,
@@ -24,7 +20,7 @@ class ProductCommentResource extends JsonResource
             'parent_id' => $this->parent_id ? (int)$this->parent_id : null,
             'root_id' => $this->root_id ? (int)$this->root_id : null,
 
-            'type' => $this->type, // review|question|answer
+            'type' => $this->type,
             'rating' => $this->rating !== null ? (int)$this->rating : null,
 
             'body' => $this->body,
@@ -32,10 +28,19 @@ class ProductCommentResource extends JsonResource
             'cons' => $this->cons,
 
             'is_verified_purchase' => (bool)$this->is_verified_purchase,
-            'answer_origin' => $this->answer_origin, // seller|administration|null
+            'answer_origin' => $this->answer_origin,
 
             'moderation_status' => $this->moderation_status,
             'moderation_reject_reason' => $this->moderation_reject_reason,
+
+            'product' => $this->whenLoaded('product', function () {
+                return [
+                    'id' => (int)$this->product->id,
+                    'title' => $this->product->title,
+                    'slug' => $this->product->slug,
+                    'user_id' => isset($this->product->user_id) ? (int)$this->product->user_id : null, // ✅ важно
+                ];
+            }),
 
             'author' => $this->whenLoaded('author', function () {
                 return [
@@ -49,10 +54,11 @@ class ProductCommentResource extends JsonResource
             'likes_count' => $likes,
             'dislikes_count' => $dislikes,
             'helpfulness_score' => $likes - $dislikes,
-            'answers_count' => isset($this->answers_count) ? (int)$this->answers_count : null,
-            'has_answers' => isset($this->answers_count) ? ((int)$this->answers_count > 0) : (bool)$this->has_answers,
+            'my_pending_report_exists' => (bool)($this->my_pending_report_exists ?? false),
 
-            // для корневых комментариев
+            'answers_count' => $answersCount,
+            'has_answers' => $answersCount !== null ? ($answersCount > 0) : false,
+
             'answers' => ProductCommentResource::collection($this->whenLoaded('answers')),
 
             'created_at' => optional($this->created_at)->toISOString(),

@@ -94,6 +94,7 @@
           <ProductCommentsSection
             v-if="product"
             :product-id="product.id"
+            :product-owner-id="product.user_id"
           />
         </v-col>
       </v-row>
