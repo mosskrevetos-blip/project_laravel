@@ -13,6 +13,22 @@
           <v-tab value="question">Питання</v-tab>
         </v-tabs>
 
+        <!-- ✅ общий рейтинг по отзывам -->
+        <div v-if="activeType === 'review'" class="mb-3 d-flex align-center ga-2">
+          <v-rating
+            :model-value="Number(globalAverageRating)"
+            length="5"
+            density="compact"
+            size="20"
+            color="amber"
+            readonly
+            half-increments
+          />
+          <span class="text-body-2 text-medium-emphasis">
+            {{ globalAverageRating.toFixed(1) }} ({{ globalReviewsCount }})
+          </span>
+        </div>
+
         <v-row class="mb-2">
           <v-col cols="12" md="3">
             <v-select
@@ -491,6 +507,10 @@ const canReply = computed(() => {
 
   return ownerId ? Number(me.id) === Number(ownerId) : false;
 });
+
+// ✅ глобальный рейтинг из store summary
+const globalAverageRating = computed(() => commentsStore.averageRating);
+const globalReviewsCount = computed(() => commentsStore.reviewsCount);
 
 function canReplyToComment(item) {
   return item?.moderation_status === 'approved';

@@ -39,6 +39,23 @@
               <v-chip v-else color="grey">Немає в наявності</v-chip>
             </div>
 
+            <!-- ✅ общий рейтинг по отзывам -->
+            <div class="mb-3 d-flex align-center ga-2 product-rating-row">
+              <v-rating
+                :model-value="Number(globalAverageRating)"
+                length="5"
+                color="amber"
+                empty-icon="mdi-star-outline"
+                full-icon="mdi-star"
+                readonly
+                size="25"
+                :half-increments="false"
+              />
+              <span class="product-rating-text">
+                {{ globalAverageRating.toFixed(1) }} ({{ globalReviewsCount }})
+              </span>
+            </div>
+
             <div class="mb-4">
               <span class="text-h4 font-weight-bold primary--text">{{ product.price }} {{ product.currency ? product.currency : '$' }}</span>
             </div>
@@ -66,7 +83,6 @@
               <v-btn variant="outlined" @click="openChatWithSeller">Чат з продавцем</v-btn>
             </div>
 
-            <!-- Продавець: ім'я | кнопка "в обране" (2 колонки) -->
             <div class="seller-grid mt-6">
               <div class="seller-left">
                 <div class="text-subtitle-2 seller-label">Продавець</div>
@@ -100,7 +116,6 @@
       </v-row>
     </v-container>
 
-    <!-- ✅ snackbar як у карточці товару -->
     <v-snackbar
       v-model="snackbar"
       :timeout="2000"
@@ -122,18 +137,19 @@ import { useRoute, useRouter } from 'vue-router';
 import { useProductStore } from '@/stores/productStore';
 import { useCartStore } from '@/stores/cartStore';
 import { useFavoriteStore } from '@/stores/favoriteStore';
+import { useProductCommentsStore } from '@/stores/productCommentsStore';
 import ProductImageGallery from '@/components/product/ProductImageGallery.vue';
 import FavoriteSellerButton from '@/components/product/FavoriteSellerButton.vue';
 import ProductCommentsSection from '@/components/product/ProductCommentsSection.vue';
 import { useMessageStore } from '@/stores/messageStore';
 import { useAuthStore } from '@/stores/authStore';
 
-
 const route = useRoute();
 const router = useRouter();
 const productStore = useProductStore();
 const cart = useCartStore();
 const favoriteStore = useFavoriteStore();
+const commentsStore = useProductCommentsStore();
 const messageStore = useMessageStore();
 const authStore = useAuthStore();
 
@@ -156,18 +172,25 @@ const attributes = computed(() => {
   return Object.keys(props).map(k => ({ name: String(k), value: String(props[k]) }));
 });
 
-// Витягуємо ім'я продавця
 const sellerName = computed(() => {
   if (!product.value) return '';
   if (product.value.user && product.value.user.name) return product.value.user.name;
   return `Продавець #${product.value.user_id}`;
 });
 
-// Завантаження товару
+// ✅ рейтинг из глобального summary commentsStore
+const globalAverageRating = computed(() => commentsStore.averageRating || 0);
+const globalReviewsCount = computed(() => commentsStore.reviewsCount || 0);
+
 async function loadProduct(id) {
   try {
     await productStore.fetchProduct(id);
     initialImageIndex.value = 0;
+
+    // подгружаем summary рейтинга (через comments endpoint)
+    commentsStore.setProduct(id);
+    commentsStore.setType('review');
+    await commentsStore.fetchList({ page: 1, per_page: 10, sort: 'date_desc' });
   } catch (err) {
     console.error('Failed to load product:', err);
   }
@@ -177,7 +200,6 @@ onMounted(() => {
   if (productId.value) loadProduct(productId.value);
 });
 
-// Обране: стан і перемикач
 const isFavorite = computed(() => {
   if (!product.value) return false;
   return favoriteStore.isFavorite(product.value.id);
@@ -185,7 +207,6 @@ const isFavorite = computed(() => {
 
 const favoriteLoading = ref(false);
 
-// snackbar state
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
@@ -219,7 +240,6 @@ async function toggleFavorite() {
   }
 }
 
-// Додати товар у кошик
 function addToCart() {
   if (!product.value) return;
   cart.addItem({
@@ -228,10 +248,8 @@ function addToCart() {
     price: product.value.price,
     image: (Array.isArray(product.value.image_url) ? product.value.image_url[0] : product.value.image_url) || null,
   }, 1, product);
-  // Ніяких alert / модальних вікон — бейдж у шапці оновиться автоматично
 }
 
-// Відкрити чат з продавцем
 async function openChatWithSeller() {
   if (!product.value) return;
 
@@ -255,64 +273,71 @@ function goToCheckout() {
 </script>
 
 <style scoped>
-  .title-grid {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    column-gap: 10px;
-  }
+.title-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+}
 
-  .title-text {
-    min-width: 0;
-  }
+.title-text {
+  min-width: 0;
+}
 
+.favorite-btn {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
 
-  .favorite-btn {
-    background-color: rgba(255, 255, 255, 0.92) !important;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  }
+.favorite-btn.favorite-active {
+  background-color: #2196F3 !important;
+}
 
+.favorite-icon {
+  color: #616161;
+}
 
-  .favorite-btn.favorite-active {
-    background-color: #2196F3 !important;
-  }
+.favorite-btn.favorite-active .favorite-icon {
+  color: #ffffff;
+}
 
+.seller-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
 
-  .favorite-icon {
-    color: #616161; 
-  }
+.seller-left {
+  min-width: 0;
+}
 
-  .favorite-btn.favorite-active .favorite-icon {
-    color: #ffffff;
-  }
+.seller-label {
+  opacity: 0.7;
+  line-height: 1.2;
+}
 
-  .seller-grid {
-    display: grid;
-    grid-template-columns: 1fr auto; /* ✅ две колонки */
-    align-items: center;
-    column-gap: 12px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(0,0,0,0.08);
-  }
+.seller-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-  .seller-left {
-    min-width: 0;
-  }
+.seller-right {
+  display: flex;
+  justify-content: flex-end;
+}
 
-  .seller-label {
-    opacity: 0.7;
-    line-height: 1.2;
-  }
+.product-rating-row {
+  line-height: 1;
+}
 
-  .seller-name {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .seller-right {
-    display: flex;
-    justify-content: flex-end;
-  }
+.product-rating-text {
+  color: rgba(0, 0, 0, 0.72); /* чтобы было видно на светлом фоне */
+  font-size: 15px;
+  font-weight: 500;
+}
 
 </style>

@@ -27,12 +27,26 @@ class ProductCommentController extends Controller
             viewerId: auth()->id()
         );
 
+        // ✅ Глобальные агрегаты по approved review для этого товара
+        $reviewsAgg = ProductComment::query()
+            ->where('product_id', $product->id)
+            ->whereNull('parent_id')
+            ->where('type', 'review')
+            ->where('moderation_status', 'approved');
+
+        $reviewsAvgRating = round((float) ($reviewsAgg->avg('rating') ?? 0), 1);
+        $reviewsCount = (int) $reviewsAgg->count();
+
         return response()->json([
             'data' => ProductCommentResource::collection(collect($result['data']))->resolve(),
             'current_page' => $result['current_page'],
             'last_page' => $result['last_page'],
             'per_page' => $result['per_page'],
             'total' => $result['total'],
+
+            // ✅ для фронта
+            'reviews_avg_rating' => $reviewsAvgRating,
+            'reviews_count' => $reviewsCount,
         ]);
     }
 

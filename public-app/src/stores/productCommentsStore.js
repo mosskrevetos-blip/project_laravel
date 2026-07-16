@@ -14,6 +14,12 @@ export const useProductCommentsStore = defineStore('productComments', {
       total: 0,
     },
 
+    // ✅ агрегаты по отзывам (глобально по товару)
+    summary: {
+      reviews_avg_rating: 0,
+      reviews_count: 0,
+    },
+
     filters: {
       product_id: null,
       type: 'review', // review|question
@@ -30,6 +36,17 @@ export const useProductCommentsStore = defineStore('productComments', {
     reportLoading: false,
     answerLoading: false,
   }),
+
+  getters: {
+    averageRating(state) {
+      const n = Number(state.summary.reviews_avg_rating || 0);
+      return Number.isFinite(n) ? Math.max(0, Math.min(5, n)) : 0;
+    },
+    reviewsCount(state) {
+      const n = Number(state.summary.reviews_count || 0);
+      return Number.isFinite(n) ? Math.max(0, n) : 0;
+    },
+  },
 
   actions: {
     setProduct(productId) {
@@ -90,6 +107,12 @@ export const useProductCommentsStore = defineStore('productComments', {
           per_page: response.data?.per_page ?? this.filters.per_page,
           total: response.data?.total ?? 0,
         };
+
+        // ✅ ожидаем от backend глобальные агрегаты по review
+        this.summary = {
+          reviews_avg_rating: Number(response.data?.reviews_avg_rating ?? 0),
+          reviews_count: Number(response.data?.reviews_count ?? 0),
+        };
       } catch (err) {
         this.error = 'Не вдалося завантажити коментарі';
         console.error(err);
@@ -142,7 +165,6 @@ export const useProductCommentsStore = defineStore('productComments', {
       }
     },
 
-    // ✅ НОВОЕ: отправка ответа продавца/админа
     async createAnswer(commentId, payload = {}) {
       this.answerLoading = true;
       this.error = null;
@@ -185,7 +207,6 @@ export const useProductCommentsStore = defineStore('productComments', {
         const response = await apiClient.post(`/comments/${commentId}/reaction`, { reaction });
         const dto = response.data?.data;
 
-        // root comment
         const i = this.items.findIndex((x) => x.id === commentId);
         if (i !== -1 && dto) {
           this.items[i] = {
@@ -197,7 +218,6 @@ export const useProductCommentsStore = defineStore('productComments', {
           return dto;
         }
 
-        // answer
         for (let rootIdx = 0; rootIdx < this.items.length; rootIdx += 1) {
           const root = this.items[rootIdx];
           const answers = Array.isArray(root.answers) ? root.answers : [];
