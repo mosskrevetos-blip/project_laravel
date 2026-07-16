@@ -63,6 +63,17 @@ class ProductCommentResource extends JsonResource
 
             'created_at' => optional($this->created_at)->toISOString(),
             'updated_at' => optional($this->updated_at)->toISOString(),
-        ];
+
+            'deleted_by_admin_id' => $this->deleted_by_admin_id ? (int)$this->deleted_by_admin_id : null,
+
+            'deleted_by_admin' => $this->whenLoaded('deletedByAdmin', function () {
+                return $this->deletedByAdmin ? [
+                    'id' => (int)$this->deletedByAdmin->id,
+                    'name' => $this->deletedByAdmin->name,
+                ] : null;
+            }),
+
+            'deleted_at' => optional($this->deleted_at)->toISOString(),
+            ];
     }
 }

@@ -50,6 +50,7 @@ class StoreProductCommentRequest extends FormRequest
                 'file',
                 'image',
                 'mimes:jpg,jpeg,png,webp,bmp,gif,tif,tiff',
+                'mimetypes:image/jpeg,image/png,image/webp,image/bmp,image/gif,image/tiff',
                 'max:10240', // 10MB per image
             ],
 
@@ -116,6 +117,7 @@ class StoreProductCommentRequest extends FormRequest
             'images.array' => 'Фото мають бути передані масивом.',
             'images.max' => 'Максимум 5 фото на один коментар.',
             'images.*.image' => 'Файл повинен бути зображенням.',
+            'images.*.mimetypes' => 'Некоректний MIME-тип файлу.',
             'images.*.mimes' => 'Дозволені формати: jpg, jpeg, png, webp, bmp, gif, tif, tiff.',
             'images.*.max' => 'Розмір одного фото не може перевищувати 10MB.',
 

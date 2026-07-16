@@ -206,6 +206,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/comments/moderation', [AdminProductCommentController::class, 'moderationList'])
         ->middleware('can:viewAny,App\Models\ProductComment');
 
+    Route::get('/admin/comments/deleted', [AdminProductCommentController::class, 'deletedList'])
+        ->middleware('can:viewAny,App\Models\ProductComment');
+
+    Route::post('/admin/comments/{comment}/restore', [AdminProductCommentController::class, 'restore'])
+        ->middleware('auth:sanctum');
+
     // Мої коментарі
     Route::get('/me/comments', [ProductCommentController::class, 'myComments']);
 });

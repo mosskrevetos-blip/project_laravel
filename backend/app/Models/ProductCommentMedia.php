@@ -14,14 +14,16 @@ class ProductCommentMedia extends Model
 
     protected $fillable = [
         'comment_id',
-        'type',         // image | youtube
-        'path',         // basename for local image
-        'external_url', // youtube url
+        'type',
+        'path',
+        'external_url',
+        'variants',
         'sort_order',
     ];
 
     protected $casts = [
         'sort_order' => 'integer',
+        'variants' => 'array',
     ];
 
     protected $appends = [
@@ -33,57 +35,32 @@ class ProductCommentMedia extends Model
         return $this->belongsTo(ProductComment::class, 'comment_id');
     }
 
-    /**
-     * Unified media URL for frontend:
-     * - youtube => external_url
-     * - image   => generated public URL to preferred variant
-     */
     public function getUrlAttribute(): ?string
     {
         if ($this->type === 'youtube') {
             return $this->external_url;
         }
 
-        if (!$this->path) {
+        if ($this->type !== 'image') {
             return null;
         }
 
-        $basename = (string) $this->path;
-        $productId = (int) ($this->comment?->product_id ?? 0);
+        $variants = (array) $this->variants;
+        if (!empty($variants['800']['webp'])) return $variants['800']['webp'];
+        if (!empty($variants['400']['webp'])) return $variants['400']['webp'];
+        if (!empty($variants['1200']['webp'])) return $variants['1200']['webp'];
+        if (!empty($variants['150']['webp'])) return $variants['150']['webp'];
+        if (!empty($variants['2000']['webp'])) return $variants['2000']['webp'];
 
-        if (!$productId) {
+        if (!$this->path || !$this->comment_id) {
             return null;
         }
 
-        $dot = strrpos($basename, '.');
-        $name = $dot === false ? $basename : substr($basename, 0, $dot);
-        $ext = $dot === false ? 'webp' : substr($basename, $dot + 1);
-
-        $disk = Storage::disk('public');
-
-        // preferred preview size
-        $candidate = "products/{$productId}/{$name}_800.{$ext}";
-
-        if (!$disk->exists($candidate)) {
-            foreach ([400, 1200, 150, 2000] as $size) {
-                $fallback = "products/{$productId}/{$name}_{$size}.{$ext}";
-                if ($disk->exists($fallback)) {
-                    $candidate = $fallback;
-                    break;
-                }
-            }
+        $relative = "comments/{$this->comment_id}/{$this->path}";
+        if (!Storage::disk('public')->exists($relative)) {
+            return null;
         }
 
-        // final fallback: original basename in folder
-        if (!$disk->exists($candidate)) {
-            $original = "products/{$productId}/{$basename}";
-            if ($disk->exists($original)) {
-                $candidate = $original;
-            } else {
-                return null;
-            }
-        }
-
-        return $disk->url($candidate);
+        return Storage::disk('public')->url($relative);
     }
 }

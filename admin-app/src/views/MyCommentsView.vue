@@ -204,7 +204,6 @@
                         <div class="detail-value text-error">{{ c.moderation_reject_reason }}</div>
                       </div>
 
-                      <!-- Реакции на комментарий -->
                       <div class="detail-block section-gap">
                         <div class="detail-label">Оцінки коментаря</div>
                         <div class="scores-row">
@@ -239,7 +238,6 @@
                         </div>
                       </div>
 
-                      <!-- Файлы комментария (теперь ДО блока ответов, как просили) -->
                       <div class="detail-block section-gap mt-2">
                         <div class="detail-label">Файли коментаря</div>
                         <div v-if="!c.media?.length" class="detail-muted">Немає файлів</div>
@@ -248,12 +246,13 @@
                           <template v-for="m in c.media" :key="m.id">
                             <v-img
                               v-if="m.type === 'image'"
-                              :src="m.url"
+                              :src="pickImageVariant(m, 'thumb')"
                               width="140"
                               height="100"
                               cover
+                              loading="lazy"
                               class="rounded media-thumb"
-                              @click.stop="openImagePreview(m.url)"
+                              @click.stop="openImagePreview(m)"
                             />
                             <a
                               v-else-if="m.type === 'youtube'"
@@ -271,7 +270,6 @@
                         </div>
                       </div>
 
-                      <!-- Ответ(ы) в самом конце -->
                       <div class="detail-block section-gap mt-2">
                         <div class="detail-label">Відповідь</div>
 
@@ -291,7 +289,6 @@
 
                             <div class="detail-message mb-3">{{ ans.body || '—' }}</div>
 
-                            <!-- Медиа ответа -->
                             <div class="mb-3">
                               <div class="detail-label mb-2">Файли відповіді</div>
                               <div v-if="!ans.media?.length" class="detail-muted">Немає файлів</div>
@@ -300,12 +297,13 @@
                                 <template v-for="m in ans.media" :key="m.id">
                                   <v-img
                                     v-if="m.type === 'image'"
-                                    :src="m.url"
+                                    :src="pickImageVariant(m, 'thumb')"
                                     width="140"
                                     height="100"
                                     cover
+                                    loading="lazy"
                                     class="rounded media-thumb"
-                                    @click.stop="openImagePreview(m.url)"
+                                    @click.stop="openImagePreview(m)"
                                   />
                                   <a
                                     v-else-if="m.type === 'youtube'"
@@ -323,7 +321,6 @@
                               </div>
                             </div>
 
-                            <!-- Реакции ответа -->
                             <div>
                               <div class="detail-label mb-1">Оцінки відповіді</div>
                               <div class="scores-row">
@@ -475,7 +472,30 @@ function statusLabel(status) {
   return '—';
 }
 
-function openImagePreview(url) {
+function pickImageVariant(media, target = 'thumb') {
+  const v = media?.variants || null;
+  const fallback = media?.url || null;
+
+  if (!v || typeof v !== 'object') return fallback;
+
+  const get = (size) => v?.[String(size)]?.webp || v?.[String(size)]?.fallback || null;
+
+  if (target === 'thumb') {
+    return window.innerWidth <= 768
+      ? (get(150) || get(400) || get(800) || fallback)
+      : (get(400) || get(800) || get(150) || fallback);
+  }
+
+  if (target === 'preview') {
+    return get(1200) || get(2000) || get(800) || fallback;
+  }
+
+  return fallback;
+}
+
+function openImagePreview(media) {
+  if (!media) return;
+  const url = pickImageVariant(media, 'preview');
   if (!url) return;
   imagePreview.value = { open: true, url };
 }

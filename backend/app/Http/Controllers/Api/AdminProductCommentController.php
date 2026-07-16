@@ -33,11 +33,11 @@ class AdminProductCommentController extends Controller
             ->with([
                 'product:id,title,slug,user_id',
                 'author:id,name',
-                'media:id,comment_id,type,path,external_url,sort_order',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
                 'media.comment:id,product_id',
                 'answers.product:id,title,slug,user_id',
                 'answers.author:id,name',
-                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
                 'answers.media.comment:id,product_id',
             ]);
 
@@ -90,11 +90,11 @@ class AdminProductCommentController extends Controller
                 $updated->load([
                     'product:id,title,slug,user_id',
                     'author:id,name',
-                    'media:id,comment_id,type,path,external_url,sort_order',
+                    'media:id,comment_id,type,path,external_url,variants,sort_order',
                     'media.comment:id,product_id',
                     'answers.product:id,title,slug,user_id',
                     'answers.author:id,name',
-                    'answers.media:id,comment_id,type,path,external_url,sort_order',
+                    'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
                     'answers.media.comment:id,product_id',
                 ])
             ))->resolve(),
@@ -120,11 +120,11 @@ class AdminProductCommentController extends Controller
                 $updated->load([
                     'product:id,title,slug,user_id',
                     'author:id,name',
-                    'media:id,comment_id,type,path,external_url,sort_order',
+                    'media:id,comment_id,type,path,external_url,variants,sort_order',
                     'media.comment:id,product_id',
                     'answers.product:id,title,slug,user_id',
                     'answers.author:id,name',
-                    'answers.media:id,comment_id,type,path,external_url,sort_order',
+                    'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
                     'answers.media.comment:id,product_id',
                 ])
             ))->resolve(),
@@ -145,6 +145,80 @@ class AdminProductCommentController extends Controller
         return response()->json([
             'message' => 'Коментар видалено.',
             'ok' => true,
+        ]);
+    }
+
+    public function deletedList(Request $request): JsonResponse
+    {
+        $perPage = max(1, min((int) $request->query('per_page', 20), 100));
+
+        $query = ProductComment::query()
+            ->onlyTrashed()
+            ->whereNull('parent_id')
+            ->whereIn('type', ['review', 'question'])
+            ->withEngagementStats()
+            ->withCount('answers')
+            ->with([
+                'product:id,title,slug,user_id',
+                'author:id,name',
+                'deletedByAdmin:id,name',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
+                'media.comment:id,product_id',
+                'answers.product:id,title,slug,user_id',
+                'answers.author:id,name',
+                'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
+                'answers.media.comment:id,product_id',
+            ])
+            ->orderByDesc('deleted_at');
+
+        if ($type = $request->query('type')) {
+            $query->where('type', $type);
+        }
+
+        $paginator = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => ProductCommentResource::collection($paginator->items())->resolve(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
+    public function restore(Request $request, int $comment): JsonResponse
+    {
+        $model = ProductComment::withTrashed()->findOrFail($comment);
+
+        if (!$request->user() || !($request->user()->hasRole('admin') || $request->user()->hasRole('manager'))) {
+            abort(403, 'Forbidden');
+        }
+
+        if (is_null($model->deleted_at)) {
+            return response()->json([
+                'message' => 'Коментар не є видаленим.',
+            ], 422);
+        }
+
+        $model->restore();
+        $model->deleted_by_admin_id = null;
+        $model->save();
+
+        return response()->json([
+            'message' => 'Коментар відновлено.',
+            'data' => (new ProductCommentResource(
+                $model->fresh([
+                    'product:id,title,slug,user_id',
+                    'author:id,name',
+                    'deletedByAdmin:id,name',
+                    'media:id,comment_id,type,path,external_url,variants,sort_order',
+                    'media.comment:id,product_id',
+                    'answers.product:id,title,slug,user_id',
+                    'answers.author:id,name',
+                    'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
+                    'answers.media.comment:id,product_id',
+                ])
+            ))->resolve(),
         ]);
     }
 }

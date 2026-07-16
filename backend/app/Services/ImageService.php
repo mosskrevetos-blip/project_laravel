@@ -54,138 +54,13 @@ class ImageService
      */
     public function generateVariantsAndManifest($uploadedFile, int $productId, string $basename): array
     {
-        $dirRelative = "products/{$productId}";
-        Storage::disk('public')->makeDirectory($dirRelative);
-
-        $ext = pathinfo($basename, PATHINFO_EXTENSION);
-        $nameWithoutExt = pathinfo($basename, PATHINFO_FILENAME);
-
-        $sourcePath = ($uploadedFile instanceof \Illuminate\Http\UploadedFile) ? $uploadedFile->getRealPath() : (string)$uploadedFile;
-
-        Log::info("ImageService: generateVariantsAndManifest start for product {$productId}, basename {$basename}, source={$sourcePath}");
-
-        if (!file_exists($sourcePath) || !is_readable($sourcePath)) {
-            $msg = "ImageService: source file missing or unreadable: {$sourcePath}";
-            Log::error($msg);
-            throw new \RuntimeException($msg);
-        }
-
-        $contents = @file_get_contents($sourcePath);
-        if ($contents === false) {
-            $msg = "ImageService: failed to read source file contents: {$sourcePath}";
-            Log::error($msg);
-            throw new \RuntimeException($msg);
-        }
-
-        $srcImg = @imagecreatefromstring($contents);
-        if ($srcImg === false) {
-            $msg = "ImageService: imagecreatefromstring failed for {$sourcePath}";
-            Log::error($msg);
-            throw new \RuntimeException($msg);
-        }
-
-        $origW = imagesx($srcImg);
-        $origH = imagesy($srcImg);
-        $manifestForFile = [];
-
-        foreach ($this->sizes as $size) {
-            $targetNameBase = "{$nameWithoutExt}_{$size}";
-            $candidates = [];
-
-            if (function_exists('imagewebp')) {
-                $candidates['webp'] = "{$targetNameBase}.webp";
-            }
-            $candidates['fallback'] = "{$targetNameBase}.{$ext}";
-
-            foreach ($candidates as $format => $targetName) {
-                $targetPathFull = storage_path("app/public/{$dirRelative}/{$targetName}");
-
-                try {
-                    $newW = (int)$size;
-                    $ratio = $origW > 0 ? ($origH / $origW) : 1;
-                    $newH = max(1, (int) round($newW * $ratio));
-
-                    $dst = imagecreatetruecolor($newW, $newH);
-                    imagealphablending($dst, false);
-                    imagesavealpha($dst, true);
-                    $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
-                    imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
-
-                    $resampled = imagecopyresampled($dst, $srcImg, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
-                    if ($resampled === false) {
-                        Log::error("ImageService: imagecopyresampled failed for {$targetName}");
-                        imagedestroy($dst);
-                        continue;
-                    }
-
-                    $saved = false;
-                    if ($format === 'webp' && function_exists('imagewebp')) {
-                        $saved = @imagewebp($dst, $targetPathFull, $this->quality);
-                    } else {
-                        $extL = strtolower(pathinfo($targetName, PATHINFO_EXTENSION));
-                        if (in_array($extL, ['jpg','jpeg']) && function_exists('imagejpeg')) {
-                            $saved = @imagejpeg($dst, $targetPathFull, $this->quality);
-                        } elseif ($extL === 'png' && function_exists('imagepng')) {
-                            $pngLevel = max(0, min(9, (int) round((100 - $this->quality) / 10)));
-                            $saved = @imagepng($dst, $targetPathFull, $pngLevel);
-                        } elseif ($extL === 'gif' && function_exists('imagegif')) {
-                            $saved = @imagegif($dst, $targetPathFull);
-                        } else {
-                            if (function_exists('imagewebp')) {
-                                $fallbackPath = storage_path("app/public/{$dirRelative}/{$targetNameBase}.webp");
-                                $saved = @imagewebp($dst, $fallbackPath, $this->quality);
-                                if ($saved) {
-                                    $targetName = "{$targetNameBase}.webp";
-                                    $targetPathFull = $fallbackPath;
-                                }
-                            }
-                        }
-                    }
-
-                    if ($saved) {
-                        $relativeUrl = "{$dirRelative}/{$targetName}";
-                        if (!isset($manifestForFile[$size])) $manifestForFile[$size] = [];
-                        if ($format === 'webp') {
-                            $manifestForFile[$size]['webp'] = "/storage/{$relativeUrl}";
-                            $manifestForFile[$size]['fallback'] = $manifestForFile[$size]['fallback'] ?? "/storage/{$relativeUrl}";
-                        } else {
-                            $manifestForFile[$size]['fallback'] = "/storage/{$relativeUrl}";
-                        }
-
-                        Log::info("ImageService: saved {$relativeUrl} for product {$productId} size {$size}");
-                    } else {
-                        Log::warning("ImageService: failed to save {$targetName} for size {$size}");
-                    }
-
-                    imagedestroy($dst);
-                } catch (\Throwable $e) {
-                    Log::error("ImageService: exception while saving {$targetName}: " . $e->getMessage());
-                }
-            }
-        }
-
-        try { imagedestroy($srcImg); } catch (\Throwable $_) {}
-
-        $manifest = [
-            $basename => []
-        ];
-        foreach ($manifestForFile as $size => $formats) {
-            $manifest[$basename][(string)$size] = $formats;
-        }
-
-        try {
-            $placeholder = $this->generatePlaceholderDataUri($contents);
-            if ($placeholder) {
-                $manifest[$basename]['placeholder'] = $placeholder;
-            }
-        } catch (\Throwable $e) {
-            Log::warning("ImageService: failed to generate placeholder for {$basename}: " . $e->getMessage());
-        }
-
-        Log::info("ImageService: finished generateVariantsAndManifest for {$basename}, manifest keys: " . implode(',', array_keys($manifest[$basename] ?? [])));
-
-        return $manifest;
+        return $this->generateVariantsAndManifestForDirectory(
+            uploadedFile: $uploadedFile,
+            directoryRelative: "products/{$productId}",
+            basename: $basename
+        );
     }
+
 
     /**
      * Generate LQIP placeholder using a temp file for encoding (safer than imagewebp(..., null))
@@ -265,5 +140,162 @@ class ImageService
         }
 
         return 'data:' . $mime . ';base64,' . base64_encode($binary);
+    }
+
+
+    public function generateVariantsAndManifestForDirectory($uploadedFile, string $directoryRelative, string $basename): array
+    {
+        Storage::disk('public')->makeDirectory($directoryRelative);
+
+        $nameWithoutExt = pathinfo($basename, PATHINFO_FILENAME);
+        $sourcePath = $uploadedFile instanceof UploadedFile ? $uploadedFile->getRealPath() : (string) $uploadedFile;
+
+        Log::info("ImageService: start generateVariantsAndManifestForDirectory", [
+            'directory' => $directoryRelative,
+            'basename' => $basename,
+            'source' => $sourcePath,
+        ]);
+
+        if (!$sourcePath || !file_exists($sourcePath) || !is_readable($sourcePath)) {
+            $msg = "ImageService: source file missing or unreadable: {$sourcePath}";
+            Log::error($msg);
+            throw new \RuntimeException($msg);
+        }
+
+        $contents = @file_get_contents($sourcePath);
+        if ($contents === false || $contents === '') {
+            $msg = "ImageService: failed to read source file contents: {$sourcePath}";
+            Log::error($msg);
+            throw new \RuntimeException($msg);
+        }
+
+        [$origW, $origH, $mime] = $this->validateImageBinary($contents, $sourcePath);
+
+        $srcImg = @imagecreatefromstring($contents);
+        if ($srcImg === false) {
+            $msg = "ImageService: imagecreatefromstring failed after validation for {$sourcePath}";
+            Log::error($msg);
+            throw new \RuntimeException($msg);
+        }
+
+        if (!function_exists('imagewebp')) {
+            imagedestroy($srcImg);
+            $msg = "ImageService: GD webp support is not available (imagewebp missing).";
+            Log::error($msg);
+            throw new \RuntimeException($msg);
+        }
+
+        $manifestForFile = [];
+
+        try {
+            foreach ($this->sizes as $size) {
+                $newW = (int) $size;
+                $ratio = $origW > 0 ? ($origH / $origW) : 1;
+                $newH = max(1, (int) round($newW * $ratio));
+
+                $dst = imagecreatetruecolor($newW, $newH);
+                if ($dst === false) {
+                    Log::warning("ImageService: imagecreatetruecolor failed", ['size' => $size]);
+                    continue;
+                }
+
+                imagealphablending($dst, false);
+                imagesavealpha($dst, true);
+                $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+                imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
+
+                $resampled = imagecopyresampled(
+                    $dst, $srcImg, 0, 0, 0, 0, $newW, $newH, $origW, $origH
+                );
+
+                if ($resampled === false) {
+                    imagedestroy($dst);
+                    continue;
+                }
+
+                $targetName = "{$nameWithoutExt}_{$size}.webp";
+                $targetPathFull = storage_path("app/public/{$directoryRelative}/{$targetName}");
+
+                $saved = @imagewebp($dst, $targetPathFull, $this->quality);
+                imagedestroy($dst);
+
+                if (!$saved) {
+                    continue;
+                }
+
+                $relativeUrl = "{$directoryRelative}/{$targetName}";
+                $manifestForFile[(string)$size] = [
+                    'webp' => "/storage/{$relativeUrl}",
+                    'fallback' => "/storage/{$relativeUrl}",
+                ];
+            }
+        } finally {
+            imagedestroy($srcImg);
+        }
+
+        $manifest = [
+            $basename => $manifestForFile,
+        ];
+
+        try {
+            $placeholder = $this->generatePlaceholderDataUri($contents);
+            if ($placeholder) {
+                $manifest[$basename]['placeholder'] = $placeholder;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("ImageService: failed to generate placeholder", [
+                'basename' => $basename,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Log::info("ImageService: finished generateVariantsAndManifestForDirectory", [
+            'basename' => $basename,
+            'keys' => array_keys($manifest[$basename] ?? []),
+            'source_mime' => $mime,
+            'source_w' => $origW,
+            'source_h' => $origH,
+            'directory' => $directoryRelative,
+        ]);
+
+        return $manifest;
+    }
+
+    private function validateImageBinary(string $contents, string $sourcePath = ''): array
+    {
+        $info = @getimagesizefromstring($contents);
+
+        if ($info === false) {
+            throw new \RuntimeException("ImageService: invalid image binary. Source: {$sourcePath}");
+        }
+
+        $width = (int)($info[0] ?? 0);
+        $height = (int)($info[1] ?? 0);
+        $mime = (string)($info['mime'] ?? '');
+
+        if ($width <= 0 || $height <= 0) {
+            throw new \RuntimeException("ImageService: invalid image dimensions. Source: {$sourcePath}");
+        }
+
+        $allowed = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif',
+            'image/bmp',
+            'image/tiff',
+        ];
+
+        if (!in_array($mime, $allowed, true)) {
+            throw new \RuntimeException("ImageService: unsupported mime {$mime}. Source: {$sourcePath}");
+        }
+
+        // защита от image bombs (подстрой при необходимости)
+        $maxPixels = (int) config('product.max_image_pixels', 40000000); // 40 MP
+        if (($width * $height) > $maxPixels) {
+            throw new \RuntimeException("ImageService: image too large by pixels ({$width}x{$height}). Source: {$sourcePath}");
+        }
+
+        return [$width, $height, $mime];
     }
 }

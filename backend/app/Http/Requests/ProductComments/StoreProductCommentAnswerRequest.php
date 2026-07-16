@@ -26,7 +26,8 @@ class StoreProductCommentAnswerRequest extends FormRequest
             ? ($user->hasRole('admin') || $user->hasRole('manager'))
             : false;
 
-        $isSellerOwner = (int)$rootComment->product->user_id === (int)$user->id; // подстройте поле owner при необходимости
+        $productOwnerId = (int) optional($rootComment->product)->user_id;
+        $isSellerOwner = $productOwnerId > 0 && $productOwnerId === (int)$user->id;
 
         return $isAdminOrManager || $isSellerOwner;
     }
@@ -49,6 +50,7 @@ class StoreProductCommentAnswerRequest extends FormRequest
                 'file',
                 'image',
                 'mimes:jpg,jpeg,png,webp,bmp,gif,tif,tiff',
+                'mimetypes:image/jpeg,image/png,image/webp,image/bmp,image/gif,image/tiff',
                 'max:10240',
             ],
 
@@ -71,6 +73,7 @@ class StoreProductCommentAnswerRequest extends FormRequest
 
             'images.max' => 'Максимум 5 фото на одну відповідь.',
             'images.*.image' => 'Файл повинен бути зображенням.',
+            'images.*.mimetypes' => 'Некоректний MIME-тип файлу.',
             'images.*.mimes' => 'Дозволені формати: jpg, jpeg, png, webp, bmp, gif, tif, tiff.',
             'images.*.max' => 'Розмір одного фото не може перевищувати 10MB.',
 

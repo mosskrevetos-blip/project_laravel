@@ -61,6 +61,21 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
 
     actionLoading: false,
     actionError: null,
+
+    deletedComments: [],
+    deletedCommentsLoading: false,
+    deletedCommentsError: null,
+    deletedCommentsPagination: {
+      current_page: 1,
+      last_page: 1,
+      per_page: 20,
+      total: 0,
+    },
+    deletedCommentsFilters: {
+      type: null,
+      page: 1,
+      per_page: 20,
+    },
   }),
 
   actions: {
@@ -369,6 +384,52 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
       }
     },
 
+    async fetchDeletedComments(customParams = {}) {
+      this.deletedCommentsLoading = true;
+      this.deletedCommentsError = null;
+
+      try {
+        const params = { ...this.deletedCommentsFilters, ...customParams };
+        const response = await apiClient.get('/admin/comments/deleted', { params });
+
+        this.deletedComments = response.data?.data ?? [];
+        this.deletedCommentsPagination = {
+          current_page: response.data?.current_page ?? 1,
+          last_page: response.data?.last_page ?? 1,
+          per_page: response.data?.per_page ?? params.per_page ?? 20,
+          total: response.data?.total ?? 0,
+        };
+        this.deletedCommentsFilters = { ...this.deletedCommentsFilters, ...params };
+      } catch (err) {
+        this.deletedCommentsError = normalizeErrorMessage(err, 'Помилка при завантаженні видалених коментарів');
+        throw err;
+      } finally {
+        this.deletedCommentsLoading = false;
+      }
+    },
+
+    async restoreComment(commentId) {
+      this.actionLoading = true;
+      this.actionError = null;
+
+      try {
+        await apiClient.getCsrfCookie();
+        const response = await apiClient.post(`/admin/comments/${commentId}/restore`);
+
+        this.deletedComments = this.deletedComments.filter(c => c.id !== commentId);
+        return response?.data?.data ?? null;
+      } catch (err) {
+        this.actionError = normalizeErrorMessage(err, 'Помилка при відновленні коментаря');
+        throw err;
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    setDeletedCommentsFilters(payload = {}) {
+      this.deletedCommentsFilters = { ...this.deletedCommentsFilters, ...payload };
+    },
+
     // ---------------- helpers ----------------
 
     setCommentsFilters(payload = {}) {
@@ -383,6 +444,7 @@ export const useProductCommentModerationStore = defineStore('productCommentModer
       this.commentsError = null;
       this.reportsError = null;
       this.actionError = null;
+      this.deletedCommentsError = null;
     },
   },
 });

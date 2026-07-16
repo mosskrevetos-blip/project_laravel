@@ -15,6 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use App\Jobs\GenerateCommentImageVariantsJob;
 
 class ProductCommentService
 {
@@ -42,10 +43,10 @@ class ProductCommentService
             ->with([
                 'product:id,title,slug',
                 'author:id,name',
-                'media:id,comment_id,type,path,external_url,sort_order',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
                 'media.comment:id,product_id',
                 'answers.author:id,name',
-                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
                 'answers.media.comment:id,product_id',
             ]);
 
@@ -104,10 +105,10 @@ class ProductCommentService
             ->with([
                 'product:id,title,slug',
                 'author:id,name',
-                'media:id,comment_id,type,path,external_url,sort_order',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
                 'media.comment:id,product_id',
                 'answers.author:id,name',
-                'answers.media:id,comment_id,type,path,external_url,sort_order',
+                'answers.media:id,comment_id,type,path,external_url,variants,sort_order',
                 'answers.media.comment:id,product_id',
             ])
             ->orderByDesc('created_at');
@@ -160,7 +161,7 @@ class ProductCommentService
             return $comment->fresh([
                 'product:id,title,slug',
                 'author:id,name',
-                'media:id,comment_id,type,path,external_url,sort_order',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
                 'media.comment:id,product_id',
             ]);
         });
@@ -203,7 +204,7 @@ class ProductCommentService
 
             return $answer->fresh([
                 'author:id,name',
-                'media:id,comment_id,type,path,external_url,sort_order',
+                'media:id,comment_id,type,path,external_url,variants,sort_order',
                 'media.comment:id,product_id',
             ]);
         });
@@ -343,7 +344,7 @@ class ProductCommentService
 
                 foreach ($toDelete as $media) {
                     if ($media->type === 'image' && $media->path) {
-                        $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$media->path);
+                        $this->deleteCommentImageVariantsByBasename((int)$comment->id, (string)$media->path);
                     }
                     $media->delete();
                 }
@@ -380,7 +381,7 @@ class ProductCommentService
             $media = ProductCommentMedia::query()->where('comment_id', $comment->id)->get();
             foreach ($media as $m) {
                 if ($m->type === 'image' && $m->path) {
-                    $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$m->path);
+                    $this->deleteCommentImageVariantsByBasename((int)$comment->id, (string)$m->path);
                 }
             }
 
@@ -456,15 +457,20 @@ class ProductCommentService
 
         foreach ($images as $image) {
             $maxSort++;
-            $basename = $this->storeImageAsWebpViaExistingPipeline($image, (int)$comment->product_id);
+            $basename = $this->storeCommentOriginalWebp($image, (int)$comment->id);
 
-            ProductCommentMedia::create([
+            $media = ProductCommentMedia::create([
                 'comment_id' => $comment->id,
                 'type' => 'image',
                 'path' => $basename,
                 'external_url' => null,
+                'variants' => null,
                 'sort_order' => $maxSort,
             ]);
+
+            GenerateCommentImageVariantsJob::dispatch((int)$media->id)
+                ->onQueue('images')
+                ->afterCommit();
         }
 
         if ($youtubeUrl) {
@@ -525,7 +531,7 @@ class ProductCommentService
 
         foreach ($toDelete as $media) {
             if ($media->type === 'image' && $media->path) {
-                $this->deleteCommentImageVariantsByBasename((int)$comment->product_id, (string)$media->path);
+                $this->deleteCommentImageVariantsByBasename((int)$comment->id, (string)$media->path);
             }
             $media->delete();
         }
@@ -587,30 +593,57 @@ class ProductCommentService
         }
     }
 
-    private function storeImageAsWebpViaExistingPipeline($uploadedFile, int $productId): string
+    private function storeCommentOriginalWebp($uploadedFile, int $commentId): string
     {
-        $basename = $this->fileService->generateUniqueFilename($uploadedFile);
+        $baseName = $this->fileService->generateUniqueFilename($uploadedFile);
+        $fileName = preg_replace('/\\.[^.]+$/', '', $baseName) . '.webp';
+        $path = "comments/{$commentId}/{$fileName}";
 
-        $this->imageService->generateVariantsAndManifest(
-            uploadedFile: $uploadedFile,
-            productId: $productId,
-            basename: $basename
-        );
+        $image = match ($uploadedFile->getMimeType()) {
+            'image/jpeg' => @imagecreatefromjpeg($uploadedFile->getPathname()),
+            'image/png'  => @imagecreatefrompng($uploadedFile->getPathname()),
+            'image/gif'  => @imagecreatefromgif($uploadedFile->getPathname()),
+            'image/bmp'  => @imagecreatefrombmp($uploadedFile->getPathname()),
+            'image/webp' => @imagecreatefromwebp($uploadedFile->getPathname()),
+            default => null,
+        };
 
-        return $basename;
+        if (!$image) {
+            throw new \RuntimeException('Unsupported image type or corrupted file.');
+        }
+
+        if (function_exists('imagepalettetotruecolor')) {
+            @imagepalettetotruecolor($image);
+        }
+        @imagealphablending($image, true);
+        @imagesavealpha($image, true);
+
+        $quality = (int) config('product.image_quality', 80);
+
+        ob_start();
+        $ok = @imagewebp($image, null, $quality);
+        $webp = ob_get_clean();
+        imagedestroy($image);
+
+        if (!$ok || $webp === false || $webp === '') {
+            throw new \RuntimeException('Failed to encode image to webp.');
+        }
+
+        Storage::disk('public')->makeDirectory("comments/{$commentId}");
+        Storage::disk('public')->put($path, $webp);
+
+        return $fileName;
     }
 
-    private function deleteCommentImageVariantsByBasename(int $productId, string $basename): void
+    private function deleteCommentImageVariantsByBasename(int $commentId, string $basename): void
     {
         $disk = Storage::disk('public');
-        $dir = "products/{$productId}";
+        $dir = "comments/{$commentId}";
 
         $nameWithoutExt = pathinfo($basename, PATHINFO_FILENAME);
-        $ext = pathinfo($basename, PATHINFO_EXTENSION) ?: 'webp';
 
         foreach ([150, 400, 800, 1200, 2000] as $size) {
             $disk->delete("{$dir}/{$nameWithoutExt}_{$size}.webp");
-            $disk->delete("{$dir}/{$nameWithoutExt}_{$size}.{$ext}");
         }
 
         $disk->delete("{$dir}/{$basename}");

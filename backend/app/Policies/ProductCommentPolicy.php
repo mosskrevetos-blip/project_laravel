@@ -63,4 +63,9 @@ class ProductCommentPolicy
             ? ($user->hasRole('admin') || $user->hasRole('manager'))
             : false;
     }
+
+    public function restoreByAdmin(User $user, ProductComment $comment): bool
+    {
+        return $this->isAdminOrManager($user);
+    }
 }

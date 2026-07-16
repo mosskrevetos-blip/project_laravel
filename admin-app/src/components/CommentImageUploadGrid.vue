@@ -37,6 +37,7 @@
             <img
               :src="slot.preview"
               alt="preview"
+              loading="lazy"
               style="width:100%;height:120px;object-fit:cover;display:block;"
             />
 
@@ -59,7 +60,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 
 const props = defineProps({
-  modelValue: { // existing images [{id, url}]
+  modelValue: { // existing images [{id, url, variants?}]
     type: Array,
     default: () => [],
   },
@@ -82,12 +83,23 @@ const dragOverIndex = ref(null);
 const existing = ref([]); // [{id,url,type:'existing'}]
 const locals = ref([]);   // [{file,preview,type:'new'}]
 
+function pickImageVariant(media, target = 'thumb') {
+  const v = media?.variants || null;
+  const fallback = media?.url || null;
+  if (!v || typeof v !== 'object') return fallback;
+
+  const get = (size) => v?.[String(size)]?.webp || v?.[String(size)]?.fallback || null;
+
+  if (target === 'thumb') return get(400) || get(150) || get(800) || fallback;
+  return get(1200) || get(800) || fallback;
+}
+
 watch(
   () => props.modelValue,
   (v) => {
     existing.value = (Array.isArray(v) ? v : []).map((x, i) => ({
       id: x.id ?? null,
-      url: x.url ?? '',
+      url: pickImageVariant(x, 'thumb') || x.url || '',
       type: 'existing',
       _k: `e-${x.id ?? i}`,
     }));
@@ -98,7 +110,6 @@ watch(
 watch(
   () => props.newFiles,
   (v) => {
-    // rebuild locals from files
     locals.value.forEach((l) => {
       try { URL.revokeObjectURL(l.preview); } catch {}
     });
@@ -185,12 +196,21 @@ function onDrop(dropIdx) {
   if (dropItemIdx >= arr.length) arr.push(moved);
   else arr.splice(dropItemIdx, 0, moved);
 
-  const nextExisting = arr.filter((x) => x.type === 'existing').map((x) => ({ id: x.id, url: x.url }));
-  const nextFiles = arr.filter((x) => x.type === 'new').map((x) => x.file);
+  const nextExisting = arr
+    .filter((x) => x.type === 'existing')
+    .map((x) => ({ id: x.id, url: x.url }));
+
+  const nextFiles = arr
+    .filter((x) => x.type === 'new')
+    .map((x) => x.file);
 
   emit('update:modelValue', nextExisting);
   emit('update:newFiles', nextFiles);
-  emit('reorder', arr.map((x) => (x.type === 'existing' ? { type: 'existing', id: x.id } : { type: 'new', name: x.file?.name })));
+  emit('reorder', arr.map((x) => (
+    x.type === 'existing'
+      ? { type: 'existing', id: x.id }
+      : { type: 'new', name: x.file?.name }
+  )));
 }
 
 function removeImage(globalIdx) {

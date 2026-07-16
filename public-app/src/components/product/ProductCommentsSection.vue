@@ -80,8 +80,6 @@
         <div v-else class="d-flex flex-column ga-4">
           <v-card v-for="item in items" :key="item.id" variant="outlined" class="root-comment-card">
             <v-card-text>
-              
-
               <div class="d-flex justify-space-between align-start ga-4">
                 <div>
                   <div class="text-subtitle-2">{{ item.author?.name || `User #${item.author_id}` }}</div>
@@ -115,12 +113,13 @@
                 <template v-for="m in item.media" :key="m.id">
                   <v-img
                     v-if="m.type === 'image'"
-                    :src="m.url"
+                    :src="pickImageVariant(m, 'thumb')"
                     width="140"
                     height="90"
                     cover
+                    loading="lazy"
                     class="rounded border-sm media-thumb"
-                    @click="openImagePreview(m.url)"
+                    @click="openImagePreview(m)"
                   />
                   <v-img
                     v-else-if="m.type === 'youtube'"
@@ -128,6 +127,7 @@
                     width="160"
                     height="90"
                     cover
+                    loading="lazy"
                     class="rounded border-sm media-thumb"
                     @click="openYoutubePreview(m.url || m.external_url)"
                   >
@@ -215,7 +215,6 @@
               </div>
 
               <div v-if="item.answers?.length" class="answers-wrap mt-4">
-
                 <div v-for="ans in item.answers" :key="ans.id" class="answer-item">
                   <div class="answer-left-rail"></div>
 
@@ -235,12 +234,13 @@
                       <template v-for="m in ans.media" :key="m.id">
                         <v-img
                           v-if="m.type === 'image'"
-                          :src="m.url"
+                          :src="pickImageVariant(m, 'thumb')"
                           width="140"
                           height="90"
                           cover
+                          loading="lazy"
                           class="rounded border-sm media-thumb"
-                          @click="openImagePreview(m.url)"
+                          @click="openImagePreview(m)"
                         />
                         <v-img
                           v-else-if="m.type === 'youtube'"
@@ -248,6 +248,7 @@
                           width="160"
                           height="90"
                           cover
+                          loading="lazy"
                           class="rounded border-sm media-thumb"
                           @click="openYoutubePreview(m.url || m.external_url)"
                         >
@@ -508,6 +509,27 @@ function onDuplicatesSkipped(count) {
 function formatDate(v) {
   if (!v) return '';
   return new Date(v).toLocaleString('uk-UA');
+}
+
+function pickImageVariant(media, target = 'thumb') {
+  const v = media?.variants || null;
+  const fallback = media?.url || null;
+
+  if (!v || typeof v !== 'object') return fallback;
+
+  const get = (size) => v?.[String(size)]?.webp || v?.[String(size)]?.fallback || null;
+
+  if (target === 'thumb') {
+    return window.innerWidth <= 768
+      ? (get(150) || get(400) || get(800) || fallback)
+      : (get(400) || get(800) || get(150) || fallback);
+  }
+
+  if (target === 'preview') {
+    return get(1200) || get(2000) || get(800) || fallback;
+  }
+
+  return fallback;
 }
 
 function buildSortOptions() {
@@ -773,8 +795,11 @@ function answerAuthorLabel(ans) {
   return ans.author?.name || `User #${ans.author_id}`;
 }
 
-function openImagePreview(url) {
-  if (!url || uiBusy.value) return;
+function openImagePreview(media) {
+  if (!media || uiBusy.value) return;
+  const url = pickImageVariant(media, 'preview');
+  if (!url) return;
+
   previewDialog.type = 'image';
   previewDialog.src = url;
   previewDialog.embedUrl = '';
@@ -860,14 +885,12 @@ onMounted(async () => {
 .comments-wrap { width: 100%; }
 .body { white-space: pre-wrap; word-break: break-word; }
 
-/* === ГЛАВНЫЕ РЕГУЛЯТОРЫ СДВИГА ОТВЕТОВ === */
 .answers-wrap {
-  --answers-indent: 52px;      /* основной сдвиг блока ответов вправо */
-  --answers-indent-mobile: 22px; /* сдвиг на мобильных */
-  --answer-rail-width: 4px;    /* ширина синей полосы ответа */
+  --answers-indent: 52px;
+  --answers-indent-mobile: 22px;
+  --answer-rail-width: 4px;
 }
 
-/* Корневой комментарий */
 .root-comment-card {
   border: 1px solid rgba(var(--v-theme-primary), 0.35) !important;
   background: linear-gradient(
@@ -914,7 +937,6 @@ onMounted(async () => {
   border: none;
 }
 
-/* Ответы: более выраженный сдвиг вправо */
 .answers-wrap {
   border-top: 1px dashed rgba(var(--v-theme-primary), 0.45);
   padding-top: 12px;
@@ -955,7 +977,6 @@ onMounted(async () => {
   background: rgba(var(--v-theme-primary), 0.05);
 }
 
-/* Адаптив: на маленьких экранах сдвиг поменьше */
 @media (max-width: 768px) {
   .answers-wrap {
     margin-left: var(--answers-indent-mobile);

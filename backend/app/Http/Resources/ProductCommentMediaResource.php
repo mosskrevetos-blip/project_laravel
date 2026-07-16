@@ -11,32 +11,26 @@ class ProductCommentMediaResource extends JsonResource
     public function toArray(Request $request): array
     {
         $url = null;
+        $variants = null;
 
-        if ($this->type === 'image' && $this->path) {
-            // path хранится как basename, напр. "comment-image-123.webp"
-            $basename = (string)$this->path;
-            $productId = (int)$this->comment?->product_id;
+        if ($this->type === 'image') {
+            $variants = is_array($this->variants) ? $this->variants : null;
 
-            $dot = strrpos($basename, '.');
-            $name = $dot === false ? $basename : substr($basename, 0, $dot);
-            $ext = $dot === false ? 'webp' : substr($basename, $dot + 1);
-
-            // дефолтный размер для списка комментариев
-            $preferredSize = 800;
-            $relative = "products/{$productId}/{$name}_{$preferredSize}.{$ext}";
-
-            // fallback, если preferred отсутствует
-            if (!Storage::disk('public')->exists($relative)) {
-                foreach ([400, 1200, 150, 2000] as $size) {
-                    $candidate = "products/{$productId}/{$name}_{$size}.{$ext}";
-                    if (Storage::disk('public')->exists($candidate)) {
-                        $relative = $candidate;
-                        break;
-                    }
-                }
+            if (is_array($variants)) {
+                $url = $variants['800']['webp']
+                    ?? $variants['400']['webp']
+                    ?? $variants['1200']['webp']
+                    ?? $variants['150']['webp']
+                    ?? $variants['2000']['webp']
+                    ?? null;
             }
 
-            $url = Storage::disk('public')->url($relative);
+            if (!$url && $this->path && $this->comment_id) {
+                $relative = "comments/{$this->comment_id}/{$this->path}";
+                if (Storage::disk('public')->exists($relative)) {
+                    $url = Storage::disk('public')->url($relative);
+                }
+            }
         }
 
         if ($this->type === 'youtube') {
@@ -45,10 +39,11 @@ class ProductCommentMediaResource extends JsonResource
 
         return [
             'id' => (int)$this->id,
-            'type' => $this->type, // image|youtube
-            'path' => $this->path, // basename для image
+            'type' => $this->type,
+            'path' => $this->path,
             'external_url' => $this->external_url,
             'url' => $url,
+            'variants' => $variants,
             'sort_order' => (int)$this->sort_order,
         ];
     }
