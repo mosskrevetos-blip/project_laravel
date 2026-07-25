@@ -14,20 +14,14 @@
         </v-tabs>
 
         <!-- ✅ общий рейтинг по отзывам -->
-        <div v-if="activeType === 'review'" class="mb-3 d-flex align-center ga-2">
-          <v-rating
-            :model-value="Number(globalAverageRating)"
-            length="5"
-            density="compact"
-            size="20"
-            color="amber"
-            readonly
-            half-increments
-          />
-          <span class="text-body-2 text-medium-emphasis">
-            {{ globalAverageRating.toFixed(1) }} ({{ globalReviewsCount }})
-          </span>
-        </div>
+        <RatingDisplay
+          v-if="activeType === 'review'"
+          class="mb-3"
+          :rating="globalAverageRating"
+          :count="globalReviewsCount"
+          :size="20"
+          :half-increments="true"
+        />
 
         <v-row class="mb-2">
           <v-col cols="12" md="3">
@@ -78,7 +72,7 @@
           </v-col>
         </v-row>
 
-        <div class="mb-4 d-flex ga-2">
+        <div id="comments-create-review" class="mb-4 d-flex ga-2">
           <v-btn color="primary" @click="applyFilters" :disabled="uiBusy">Застосувати</v-btn>
           <v-btn color="primary" variant="outlined" @click="openCreateDialog" :disabled="uiBusy">
             {{ activeType === 'review' ? 'Написати відгук' : 'Поставити питання' }}
@@ -435,9 +429,10 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useProductCommentsStore } from '@/stores/productCommentsStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useUiBlocker } from '@/composables/useUiBlocker';
 import ImageUploadGridLocal from '@/components/common/ImageUploadGridLocal.vue';
 import UiBlockingOverlay from '@/components/common/UiBlockingOverlay.vue';
-import { useUiBlocker } from '@/composables/useUiBlocker';
+import RatingDisplay from '@/components/common/RatingDisplay.vue';
 
 const props = defineProps({
   productId: { type: [Number, String], required: true },

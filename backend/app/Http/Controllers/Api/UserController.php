@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
+use App\Models\Product;
+use Illuminate\Http\JsonResponse;
 
 class UserController extends Controller
 {
@@ -92,5 +94,55 @@ class UserController extends Controller
         $user->delete();
 
         return response()->json(null, 204);
+    }
+
+
+    public function publicSellerProfile(Request $request, User $seller): JsonResponse
+    {
+        $perPage = (int) $request->query('per_page', 12);
+        if ($perPage <= 0) $perPage = 12;
+
+        $productsQuery = Product::query()
+            ->with(['category', 'user'])
+            ->where('user_id', $seller->id)
+            ->publishedForSearch()
+            ->withAvg(['reviews as rating_avg' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }], 'rating')
+            ->withCount(['reviews as reviews_count' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }])
+            ->latest();
+
+        $products = $productsQuery->paginate($perPage);
+
+        $sellerData = [
+            'id' => $seller->id,
+            'name' => $seller->name,
+            'seller_rating' => (int) ($seller->seller_rating ?? 0),
+            'buyer_rating' => (int) ($seller->buyer_rating ?? 0),
+            'wholesale_seller_rating' => (int) ($seller->wholesale_seller_rating ?? 0),
+            'manufacturer_rating' => (int) ($seller->manufacturer_rating ?? 0),
+            'last_seen_at' => $seller->last_seen_at,
+        ];
+
+        return response()->json([
+            'seller' => $sellerData,
+            'products' => [
+                'data' => $products->items(),
+                'meta' => [
+                    'current_page' => $products->currentPage(),
+                    'last_page' => $products->lastPage(),
+                    'per_page' => $products->perPage(),
+                    'total' => $products->total(),
+                ],
+                'links' => [
+                    'first' => $products->url(1),
+                    'last' => $products->url($products->lastPage()),
+                    'prev' => $products->previousPageUrl(),
+                    'next' => $products->nextPageUrl(),
+                ],
+            ],
+        ]);
     }
 }

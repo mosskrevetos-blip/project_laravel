@@ -59,6 +59,9 @@ Route::get('/search/suggestions', [SearchController::class, 'suggestions']);
 // Коментарі товару (публічний список, з урахуванням видимості)
 Route::get('/products/{product}/comments', [ProductCommentController::class, 'index']);
 
+// Публічний профіль продавця
+Route::get('/sellers/{seller}', [UserController::class, 'publicSellerProfile']);
+
 
 //==========================================================================
 // ЗАХИЩЕНІ МАРШРУТИ (вимагають аутентифікації та відповідних прав доступу)

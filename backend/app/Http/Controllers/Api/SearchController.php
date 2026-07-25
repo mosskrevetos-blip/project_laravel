@@ -44,6 +44,12 @@ class SearchController extends Controller
         $products = Product::query()
             ->with(['category', 'user'])
             ->publishedForSearch()
+            ->withAvg(['reviews as rating_avg' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }], 'rating')
+            ->withCount(['reviews as reviews_count' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }])
             ->where('title', 'like', '%' . $query . '%')
             ->latest()
             ->paginate($perPage);

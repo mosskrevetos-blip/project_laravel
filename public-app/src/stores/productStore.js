@@ -1,3 +1,5 @@
+// Файл: public-app/src/stores/productStore.js
+
 import { defineStore } from 'pinia';
 import apiClient from '@/api';
 

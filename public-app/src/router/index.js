@@ -44,13 +44,37 @@ const router = createRouter({
       component: () => import('../views/CheckoutThankYou.vue'),
       props: (route) => ({ orders: route.params.orders || null }),
     },
+    {
+      path: '/seller/:id(\\d+)',
+      name: 'seller.show',
+      component: () => import('../views/SellerPage.vue'),
+    },
   ],
-})
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition;
+
+    if (to.hash) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            el: to.hash,
+            top: 180,        // небольшой отступ, чтобы кнопка была видна
+            behavior: 'smooth',
+          });
+        }, 250); // даём странице/компонентам дорендериться
+      });
+    }
+
+    return { top: 0 };
+  },
+});
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   await authStore.getUser();
   next();
 });
+
+
 
 export default router

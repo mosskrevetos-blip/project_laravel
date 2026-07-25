@@ -351,11 +351,33 @@ class ProductController extends Controller
 
     public function popular()
     {
-        return Product::with('category')->inRandomOrder()->take(8)->get();
+        return Product::query()
+            ->with(['category', 'user'])
+            ->publishedForSearch()
+            ->withAvg(['reviews as rating_avg' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }], 'rating')
+            ->withCount(['reviews as reviews_count' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }])
+            ->inRandomOrder()
+            ->take(8)
+            ->get();
     }
 
     public function newest()
     {
-        return Product::with('category')->latest()->take(8)->get();
+        return Product::query()
+            ->with(['category', 'user'])
+            ->publishedForSearch()
+            ->withAvg(['reviews as rating_avg' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }], 'rating')
+            ->withCount(['reviews as reviews_count' => function ($q) {
+                $q->where('moderation_status', 'approved');
+            }])
+            ->latest()
+            ->take(8)
+            ->get();
     }
 }

@@ -1,3 +1,5 @@
+// Файл: public-app/src/stores/favoriteSellerStore.js
+
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import apiClient from '@/api';
